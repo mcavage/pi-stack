@@ -1,0 +1,6 @@
+{
+  "defaultProjectTrust": "always",
+  "enableInstallTelemetry": false,
+  "theme": "dracula",
+  "hideThinkingBlock": true
+}

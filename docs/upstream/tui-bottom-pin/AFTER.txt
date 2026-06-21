@@ -1,0 +1,79 @@
+########## PATCHED ##########
+===== test.mjs =====
+=== pi-tui bottom-block jitter test (ROWS=12) ===
+
+[Frame A] initial render
+  bottom block rows: { editor: 9, powerbar: 10, footer: 11 } | viewportTop= 7
+  PASS  footer pinned to bottom row (11 === 11)
+  PASS  editor/powerbar above footer, contiguous
+
+[Frame B] chat shrinks by 1 (reflow/collapse)
+  bottom block rows: { editor: 9, powerbar: 10, footer: 11 } | viewportTop= 6
+  PASS  EDITOR_ROW stayed put (before=9 after=9)
+  PASS  POWERBAR_ROW stayed put (before=10 after=10)
+  PASS  FOOTER_ROW stayed put (before=11 after=11)
+
+[Frame C] chat grows back by 1
+  bottom block rows: { editor: 9, powerbar: 10, footer: 11 } | fullRedraws delta= 0
+  PASS  bottom block back at original rows after grow
+  PASS  grow did not trigger a full screen clear
+
+[Frame D] steady state (no change)
+  bottom block rows: { editor: 9, powerbar: 10, footer: 11 } | fullRedraws delta= 0
+  PASS  steady state keeps bottom block fixed
+  PASS  steady state did not trigger a full clear
+
+========================================
+RESULT: PASS — bottom block stays pinned across shrink/grow/steady
+[exit 0]
+
+===== edge.mjs =====
+
+[1] multi-line shrink (drop 3)
+  PASS  bottom pinned across 3-line shrink ({"editor":9,"powerbar":10,"footer":11} -> {"editor":9,"powerbar":10,"footer":11})
+  PASS  3-line shrink pinned WITHOUT a full screen clear (smooth)
+  PASS  IME hardware cursor landed on editor row (screenRow=9, editor=9)
+
+[2] shrink + footer content changes
+  PASS  editor/powerbar pinned (e=9 p=10)
+  PASS  changed footer painted at same row (11 === 11)
+
+[3] buffer fits on screen (top-anchored) shrink
+  PASS  viewportTop is 0 (top-anchored)
+  PASS  footer moved up by 1 naturally (8 -> 7)
+  PASS  no blank row inserted at top (HEAD still row 0)
+
+[4] overlay active: pinning skipped, no crash
+  PASS  shrink with overlay did not throw
+
+[5] pure growth path untouched
+  PASS  footer visible after growth
+  PASS  growth did not force a full clear
+
+========================================
+EDGE RESULT: PASS
+[exit 0]
+
+===== integrity.mjs =====
+
+[1] visible window matches bottom-anchored slice after shrink
+  PASS  every visible row equals expected bottom-anchored content (history pulled down, no blanks)
+  PASS  no spurious blank rows introduced
+
+[2] large collapse (shrink by 19) pins bottom, no blank fill
+  PASS  bottom block visible after large collapse (a={"e":9,"p":10,"f":11} b={"e":6,"p":7,"f":8})
+  PASS  content correct after large collapse to fits-on-screen
+
+[2b] large collapse staying bottom-anchored pins exactly, no blanks
+  PASS  bottom pinned across big bottom-anchored shrink ({"e":9,"p":10,"f":11} -> {"e":9,"p":10,"f":11})
+  PASS  no blank rows after big shrink (history pulled down)
+  PASS  visible content matches expected bottom-anchored slice
+
+[3] sustained step-by-step shrink (no blank accumulation)
+  PASS  footer stayed at row 11 through 11 successive shrinks
+  PASS  no blank rows accumulated at top across sustained shrink
+
+========================================
+INTEGRITY RESULT: PASS
+[exit 0]
+

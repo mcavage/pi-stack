@@ -1,0 +1,8 @@
+.git
+.gitignore
+README.md
+Makefile
+pi-kit/
+*.zip
+node_modules/
+.DS_Store

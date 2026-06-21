@@ -1,0 +1,23 @@
+{
+  "name": "pi-stack",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-model pi coding agent harness on a Docker Hardened (DHI) Debian base",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ],
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0"
+  }
+}

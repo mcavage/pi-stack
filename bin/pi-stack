@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# pi-stack — launch the pi-stack sandbox in any directory.
+#
+#   cd ~/dev/anything && pi-stack          # run in the current dir
+#   pi-stack ~/dev/other                   # run in a specific dir
+#   pi-stack -- --model openai/gpt-5.5     # pass args through to pi
+#
+# Resolves the kit relative to this script, so it works from anywhere on PATH.
+set -euo pipefail
+
+# Resolve the repo root from this script's real location (follows symlinks).
+src="${BASH_SOURCE[0]}"
+while [ -h "$src" ]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  [[ "$src" != /* ]] && src="$dir/$src"
+done
+ROOT="$(cd -P "$(dirname "$src")/.." && pwd)"
+KIT="$ROOT/pi-kit"
+
+# Workspace = first non-flag arg, else cwd. Remaining args after `--` go to pi.
+workspace="."
+if [ "${1:-}" != "" ] && [ "${1:-}" != "--" ]; then
+  workspace="$1"; shift
+fi
+[ "${1:-}" = "--" ] && shift
+
+cmd=( sbx run pi-stack --kit "$KIT" "$workspace" )
+[ "$#" -gt 0 ] && cmd+=( -- "$@" )
+exec "${cmd[@]}"

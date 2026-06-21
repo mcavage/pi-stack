@@ -1,0 +1,68 @@
+# AGENTS.md — pi-stack
+
+You're working on **pi-stack**: a personal, multi-model **pi** coding-agent
+harness that runs inside **Docker Sandboxes** (`sbx`) on a **DHI** (Docker
+Hardened Image) Node/Debian base. You may be *running inside* a pi-stack sandbox
+or *editing this repo* to extend the harness. This file is the harness's memory —
+read it before changing things, and keep it current as you learn.
+
+## Repo layout
+
+| path | what |
+|---|---|
+| `Dockerfile` | the image: DHI node base + LSP toolchains + chromium + gh + fd + curated pi packages + the baked harness |
+| `pi-kit/spec.yaml` | the **sandbox kit** (kit-spec **v1**): image, entrypoint, multi-model proxy creds, network allowlist, `agentContext` |
+| `settings.json` | → `~/.pi/agent/settings.json` (theme, trust, `hideThinkingBlock`) |
+| `keybindings.json` | → `~/.pi/agent/keybindings.json` (emacs; model-cycle moved to **Alt+P**) |
+| `agents/*.md` | subagent role presets: `fanout` / `review` / `deep` |
+| `skills/<name>/SKILL.md` | Agent Skills: ship · code-review · investigate · brainstorm · spec · qa · design-review |
+| `extensions/*.ts` | local TypeScript extensions (`status.ts`, `timestamps.ts`) |
+| `themes/*.json` | `dracula` (default), `pi-stack` |
+| `prompts/*.md` | prompt templates (`/name`) |
+| `docs/STACK-MAP.md` | capability map vs Claude Code / opencode / cagent (have / package / build) |
+
+## Build → load → run (read this before iterating)
+
+- **Image or baked files** (Dockerfile, settings, keybindings, agents/skills/extensions/themes) → `make load` (build + `docker save` + `sbx template load`). The sbx runtime has its **own image store**, so a locally-built image MUST be loaded in — otherwise sbx tries to *pull* it and 500s. `make load` is **heavy** (~1GB tar); batch changes.
+  - **You (the agent) CANNOT run `make load` / `make run` from inside a pi-stack sandbox** — they need the **host's** Docker + `sbx` CLI, which the VM has no access to. Don't offer to. Edit the baked files, sync them into the live `~/.pi/agent/...` dir + `/reload` for the current session, and tell the **user** to run `make load` on their host to bake it for future sandboxes.
+- **Kit only** (`pi-kit/spec.yaml`) → just `make run` a fresh sandbox. `--kit` applies at sandbox **creation** only — no rebuild needed.
+- **This file** (`AGENTS.md`) and other workspace files are read live from the mount — no rebuild.
+- A running sandbox keeps its **creation-time image**; recreate (`sbx rm -f … && make run`) to pick up image changes.
+- **Testing:** never create/remove a sandbox named `pi-stack-pi-stack` — that's what `make run` uses, so you'll collide and strand sbx state. Use `--name pi-stack-test`.
+- **Load-check an extension without keys:** `docker run --rm pi-stack:latest bash -lc 'pi -p hi'` → "No API key" means extensions loaded fine; "Failed to load extension …" means fix it before loading.
+
+## Writing extensions (`extensions/*.ts`)
+
+- Shape: `export default function (pi: any) { … }`. pi loads `.ts` **directly** (no build step), with **full Node globals at runtime** — `process`, `require`, `setInterval` all work. `@types/node` + `tsconfig.json` make pi-lens/tsserver recognize them. **Do NOT "fix" `process`/`require` errors by deleting them** — they're real at runtime; it was only a type-lint gap (now configured).
+- An extension that throws **at load breaks pi startup** → guard defensively. But pi-lens flags empty `catch {}` as error-swallowing, so write `catch { /* best-effort; must not break the agent */ }` (a comment) or actually handle it.
+- Core API: `pi.registerCommand(name, {description, handler})`, `pi.registerShortcut("ctrl+alt+x", {…})`, `pi.on(event, (e, ctx) => …)`, `pi.registerTool(…)`, `pi.events`. In handlers: `ctx.ui.notify / setWorkingMessage / setStatus / setWidget`, `ctx.model`, `ctx.getContextUsage()`, `ctx.abort()`, `ctx.isIdle()`.
+- Useful events: `turn_start` / `turn_end`, `tool_execution_start` / `update` / `end`, `message_update`, `before_provider_request` / `after_provider_response`, `tool_call` (return `{block,reason}` to gate), `session_shutdown`.
+- `extensions/status.ts` is the canonical defensive pattern (live working-line + `/status` + stall watchdog).
+- **Never put `.d.ts` (or any non-extension `.ts`) in `extensions/`** — pi tries to load *every* `.ts` there as an extension factory and **crashes pi startup** on a declaration file (`does not export a valid factory function`). Put ambient types in `types/` (covered by `tsconfig` `include`); Node globals come from `@types/node`.
+- **Display-only injected messages:** `pi.sendMessage` defaults to `deliverAs:"steer"`, which **triggers an LLM call to deliver the message**. Fired from an idle hook (e.g. `agent_end`) it ends the conversation on an assistant turn, and reasoning models (`claude-opus-4-8`) **400 with "assistant prefill not supported"**. For pure display annotations use `deliverAs:"nextTurn"` ("does not interrupt or trigger anything") and strip them in the `context` hook by `customType`. See `extensions/timestamps.ts`.
+
+## Writing skills (`skills/<name>/SKILL.md`)
+
+YAML frontmatter `name` + `description` (when to use), then tight markdown steps.
+Auto-discovered; invoke `/skill:<name>` or let it auto-load. Delegate heavy or
+parallel work to subagents via the `Agent` tool (`subagent_type=fanout|review|deep`).
+
+## Models & subagents
+
+- Providers: **Claude + OpenAI**, keys injected proxy-side (the VM only ever sees the `proxy-managed` sentinel). Switch `/model`; cycle **Alt+P**.
+- **ALWAYS fully-qualify model ids** (`provider/id`). A bare name like `haiku` can resolve to a keyless provider (e.g. `amazon-bedrock`) and **hang the subagent forever**. Known-good: `anthropic/claude-opus-4-8`, `anthropic/claude-haiku-4-5`, `openai/gpt-5.5`.
+- Preset roles: `fanout` = haiku (cheap breadth, read-only), `review` = gpt-5.5 (cross-vendor adversary — different blind spots), `deep` = opus (one hard problem).
+
+## Hard-won gotchas
+
+- **Kit is v1.** `sbx kit validate` warns it's deprecated for v2, but **v2 panics `sbx run`** (it needs an undocumented per-credential source field). Stay on v1.
+- **The proxy is TLS-intercepting.** CA trust is installed via the kit `install` command + `NODE_EXTRA_CA_CERTS`. Egress is allowed only to `network.allowedDomains` in `spec.yaml` — a new external host = add it there + recreate the sandbox.
+- **The DHI base is minimal:** no `useradd` (append to `/etc/passwd`), `/usr/local/bin` may not exist (`mkdir -p`), no `gzip`/`curl`/`fd`/`hostname` by default (apt-install, or bake the static binary like ruff/fd do).
+- **Stalled model streams:** pi has no client read timeout, so a dead SSE stream spins "working…" forever. `status.ts`'s watchdog auto-cancels a turn with no output for 3 min; otherwise `Esc`. Diagnose a hung sandbox with `ps` (idle CPU + no child process = network wait, not compute).
+- **Full-auto:** no permission prompts — the sandbox isolation is the safety boundary.
+
+## Toolchain in the image
+
+node 25 · npm · git · **gh** (HTTPS token via proxy — use for PRs, not SSH) ·
+ripgrep · **fd** · ruff · clangd · pyright · typescript-language-server ·
+**chromium** + **agent-browser** (localhost QA) · python3 · build-essential.

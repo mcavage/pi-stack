@@ -1,0 +1,112 @@
+name: publish
+
+# Build the pi-stack image multi-arch (amd64 + arm64) and push it to Docker Hub,
+# so consumers can `sbx run pi-stack --kit "git+...#dir=pi-kit"` with only sbx.
+#
+# Uses native runners per arch (no QEMU) — the image is chromium-heavy and would
+# crawl under emulation. Each arch is pushed by digest, then merged into one
+# multi-arch tag.
+#
+# Required repo SECRETS (Settings → Secrets and variables → Actions):
+#   DOCKERHUB_USERNAME / DOCKERHUB_TOKEN  — one Docker Hub PAT (Read + Write) on
+#       your DHI-entitled account. It authenticates BOTH the dhi.io base PULL and
+#       the Docker Hub PUSH (DHI is gated by your Docker account, so the same PAT
+#       works for both registries).
+# Optional repo VARIABLE:
+#   DOCKER_USER                           — Docker Hub namespace (default: mcavage)
+#
+# Trigger: push a version tag (e.g. `git tag v0.1.0 && git push --tags`) or run
+# manually from the Actions tab.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+env:
+  IMAGE: docker.io/${{ vars.DOCKER_USER || 'mcavage' }}/pi-stack
+
+jobs:
+  build:
+    name: build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, platform: linux/amd64, runner: ubuntu-latest }
+          - { arch: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # One Docker Hub PAT authenticates both registries (DHI is gated by your
+      # Docker account). dhi.io = pull the base; docker.io = push pi-stack.
+      - name: Log in to DHI (pull the hardened base)
+        uses: docker/login-action@v3
+        with:
+          registry: dhi.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to Docker Hub (push)
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: merge manifest
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and push the multi-arch tag(s)
+        working-directory: /tmp/digests
+        run: |
+          tags="-t ${IMAGE}:latest"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tags="${tags} -t ${IMAGE}:${GITHUB_REF_NAME}"
+          fi
+          docker buildx imagetools create ${tags} \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect
+        run: docker buildx imagetools inspect "${IMAGE}:latest"

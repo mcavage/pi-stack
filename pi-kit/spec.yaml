@@ -1,0 +1,113 @@
+schemaVersion: "1"
+kind: sandbox
+name: pi-stack
+displayName: Pi Stack
+description: "Multi-model pi coding agent on a Docker Hardened (DHI) Debian base"
+
+sandbox:
+  # Published image — consumers pull this by name (sbx auto-pulls it). For local
+  # dev, `make load` builds + tags + loads the image under this same name, so
+  # `make run` uses your local build instead of pulling. Change the namespace to
+  # match your Docker Hub handle (must match Makefile DOCKER_USER).
+  image: "docker.io/mcavage/pi-stack:latest"
+  aiFilename: AGENTS.md
+  entrypoint:
+    # --session-dir persists sessions on the host-mounted workspace so they
+    # survive sandbox recreation (resume with `pi -c` / `pi -r`); --models sets
+    # the Alt+P cycle squad (Ctrl+P is remapped to emacs cursor-up).
+    run: [pi, "--session-dir", ".pi-sessions", "--models", "anthropic/claude-opus-4-8,openai/gpt-5.5,anthropic/claude-haiku-4-5"]
+
+# Provider keys are read by the host proxy and swapped into the outbound auth
+# header — the agent inside the VM only ever sees the "proxy-managed" sentinel.
+#
+# Uses kit-spec v1. `sbx kit validate` flags these fields as deprecated for v2
+# (credentials[].apiKey.inject[] + caps.network.allow), but v2 ALSO requires an
+# as-yet-undocumented per-credential source/service binding — omitting it makes
+# `sbx run` panic ("invalid identifier ... credentials/<sandbox>/"). v1 is what
+# every official Docker example + the contrib `pi` kit use; it validates (with
+# deprecation warnings only) and works. Revisit v2 once its schema is documented.
+network:
+  serviceDomains:
+    api.anthropic.com: anthropic
+    console.anthropic.com: anthropic
+    claude.ai: anthropic
+    api.openai.com: openai
+  serviceAuth:
+    anthropic:
+      headerName: x-api-key
+      valueFormat: "%s"
+    openai:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+  allowedDomains:
+    - registry.npmjs.org
+    - nodejs.org
+    - github.com
+    - api.github.com
+    - uploads.github.com
+    - codeload.github.com
+    - objects.githubusercontent.com
+    - raw.githubusercontent.com
+    - pi.dev
+    # pi-web-access web_search backends (else the call is blocked → hangs). Exa
+    # is the zero-config default; the rest are its fallbacks. Add a provider key
+    # (EXA_API_KEY / GEMINI_API_KEY / PERPLEXITY_API_KEY) for reliable results.
+    - api.exa.ai
+    - mcp.exa.ai
+    - generativelanguage.googleapis.com
+    - api.perplexity.ai
+
+credentials:
+  sources:
+    anthropic:
+      env:
+        - ANTHROPIC_API_KEY
+    openai:
+      env:
+        - OPENAI_API_KEY
+
+environment:
+  variables:
+    # pi runs on Node, which uses its own bundled CA store (not the system one),
+    # so it must be told to also trust the proxy's intercepting CA.
+    NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/proxy-ca.crt
+  proxyManaged:
+    - ANTHROPIC_API_KEY
+    - OPENAI_API_KEY
+
+# The sandbox proxy terminates TLS and presents its own CA (delivered at runtime
+# via $PROXY_CA_CERT_B64). The stock template images trust it out of the box; a
+# custom image must install it. Same pattern as the docs' `internal-ca` kit.
+commands:
+  install:
+    - command: 'mkdir -p /usr/local/share/ca-certificates && printf "%s" "$PROXY_CA_CERT_B64" | base64 -d > /usr/local/share/ca-certificates/proxy-ca.crt && update-ca-certificates'
+      user: "0"
+      description: Trust the sandbox proxy's TLS-intercepting CA
+
+agentContext: |
+  # pi-stack
+  You are pi, running inside the **pi-stack** sandbox — a Docker Hardened (DHI)
+  Debian base, isolated by Docker Sandboxes. The environment is disposable:
+  work directly, commit often.
+
+  ## Multi-model
+  Both ANTHROPIC and OPENAI keys are injected by the host proxy and never stored
+  in this VM. Switch models with `/model` or `--model openai/<id>`. Prefer a
+  cheap/fast model for bulk fan-out and a stronger model for synthesis & review.
+
+  ## Subagents (multi-model fan-out)
+  The `Agent` tool + `/agents` (@tintinweb/pi-subagents) run subagents in
+  parallel. Three role presets live in ~/.pi/agent/agents:
+    - fanout  — cheap/fast (haiku), read-only; spawn many for breadth.
+    - review  — adversarial 2nd opinion on a DIFFERENT vendor (gpt) than main.
+    - deep    — strongest (opus) for one hard sub-problem.
+  Fan a task across roles, then synthesize. Use review before committing.
+
+  ## Installed harness
+  plan mode (pi-plan), pi-mcp-adapter (wire servers per-project),
+  todo list, pi-simplify, pi-web-access, pi-lens (inline LSP diagnostics for
+  JS/TS, Python, C/C++, YAML, JSON), powerbar statusline + usage HUD.
+
+  ## Posture
+  Full-auto: no permission prompts — the sandbox isolation is the safety
+  boundary. Work directly, commit often.
