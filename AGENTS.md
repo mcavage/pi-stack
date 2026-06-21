@@ -60,6 +60,7 @@ parallel work to subagents via the `Agent` tool (`subagent_type=fanout|review|de
 - **The DHI base is minimal:** no `useradd` (append to `/etc/passwd`), `/usr/local/bin` may not exist (`mkdir -p`), no `gzip`/`curl`/`fd`/`hostname` by default (apt-install, or bake the static binary like ruff/fd do).
 - **Stalled model streams:** pi has no client read timeout, so a dead SSE stream spins "working…" forever. `status.ts`'s watchdog auto-cancels a turn with no output for 3 min; otherwise `Esc`. Diagnose a hung sandbox with `ps` (idle CPU + no child process = network wait, not compute).
 - **Full-auto:** no permission prompts — the sandbox isolation is the safety boundary.
+- **Vendored renderer patch (`scripts/patches/`).** pi-tui's `doRender()` jitters the input box + powerbar up/down while streaming (it doesn't re-anchor the viewport on a bottom-anchored buffer *shrink*). No extension/config fixes it, so the Dockerfile runs `apply-tui-bottom-pin.mjs` after the pi install to patch the installed `@earendil-works/pi-tui/dist/tui.js`. The script is **idempotent + non-fatal** (warns and leaves the file unpatched if a pi version moves the `// Find first and last changed lines` anchor). **On a pi version bump, re-verify it still applies** (`grep "Bottom-block pin" .../pi-tui/dist/tui.js`); if the warning fires, refresh `scripts/patches/tui-bottom-pin.block.txt`. Full root-cause + tests in `docs/upstream/tui-bottom-pin.md` (this is also the eventual upstream PR — gated behind their `lgtm` contribution process).
 
 ## Toolchain in the image
 

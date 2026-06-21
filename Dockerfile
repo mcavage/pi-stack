@@ -35,6 +35,16 @@ RUN mkdir -p "$NPM_CONFIG_PREFIX"
 RUN npm install -g --ignore-scripts "${PI_PACKAGE}" \
  && pi --version
 
+# --- vendored renderer patch: "bottom-block pin" ------------------------------
+# pi-tui's doRender() doesn't re-anchor the viewport on a bottom-anchored buffer
+# SHRINK, so the input box + powerbar drift up by a row while streaming. There's
+# no extension/config fix (the churn is in pi's own chat render), so we patch the
+# installed renderer at build time. The script is idempotent and NON-FATAL: if a
+# future pi version moves the anchor it warns and leaves the file unpatched
+# rather than failing the build. Full writeup: docs/upstream/tui-bottom-pin.md.
+COPY scripts/patches/ /usr/local/share/pi-stack/patches/
+RUN node /usr/local/share/pi-stack/patches/apply-tui-bottom-pin.mjs
+
 # --- language servers / dev tooling (pi-lens inline diagnostics) --------------
 # clangd (C/C++ LSP) + a C/C++ build toolchain + python3, so C/C++ projects and
 # native npm modules (node-pty etc.) compile. (Java/Go/Rust omitted — add later.)

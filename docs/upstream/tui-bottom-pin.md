@@ -1,7 +1,16 @@
 # pi-tui: input box + bottom widgets jump up/down during streaming
 
 **Repo:** `earendil-works/pi` · **Package:** `packages/tui` (`@earendil-works/pi-tui`)
-**Affected version:** `0.79.8` **and `0.79.9`** (coding-agent + tui) · **Type:** rendering bug + fix (tested)
+**Affected version:** `0.79.8` **and `0.79.9`** (coding-agent + tui) · **Type:** rendering bug + **proof-of-concept** fix
+
+> ⚠️ **Status: PoC / proposal, NOT merge-ready.** The fix below compiles (`tsgo` clean) and
+> passes our headless repro, but it **fails 2 of the 23 existing `packages/tui/test/tui-render.test.ts`
+> cases** (`full re-renders when deleted lines move the viewport upward`, `clears stale content when
+> maxLinesRendered was inflated by a transient component`). Those tests encode a *deliberate*
+> design — full-redraw on a viewport-moving shrink to guarantee stale content is cleared — that
+> this PoC bypasses. A merge-ready fix must re-anchor only the small in-viewport shrink while
+> preserving those full-redraw safety paths (or the maintainers must agree those two behaviors
+> should change). This needs a maintainer decision first (Contribution Proposal issue).
 
 > `dist/tui.js` is **byte-identical** in 0.79.8 and 0.79.9, so this bug is present in the
 > latest release and the patch applies cleanly to both. Note: 0.79.9 fixes two *related but
@@ -152,15 +161,32 @@ removed.
 re-anchors `viewportTop 7 → 6` instead of moving the block); the visible window matches the
 expected bottom-anchored slice with no blanks.
 
-## Regressions considered (all covered by tests, all green)
+## Self-check against our headless harness (green)
 
 - **Growth / steady-state** — branch requires `newLines.length < previousLines.length`; untouched.
 - **Fits-on-screen (top-anchored)** — `newLines.length >= height` + `prevViewportTop > 0` guards skip it, so content legitimately moves up (no phantom top blank).
-- **Multi-line shrink** — pinned smoothly *without* a full clear (the original needed `fullRender(true)`).
+- **Multi-line shrink** — pinned smoothly *without* a full clear.
 - **Shrink + footer content change** — changed footer repainted at the same row.
 - **Overlays / `clearOnShrink` / width+height change / first render** — all return before the branch.
 - **Kitty images** — skipped when any image is tracked or visible → existing image-aware path.
-- **Scrollback fidelity** — `firstDiff >= newViewportTop` guarantees pulled-in lines (and scrollback above) already match the terminal.
+
+## ⚠️ Conflict with the maintainers' existing suite (the open question)
+
+The PoC inserts its branch *before* the differential pass, so it also captures the
+viewport-moving-shrink cases the maintainers **intentionally full-redraw**. Result against
+`packages/tui/test/tui-render.test.ts`:
+
+```
+ours (headless):  test/edge/integrity → PASS
+theirs (tui-render.test.ts): 21/23 PASS, 2 FAIL
+  ✖ full re-renders when deleted lines move the viewport upward
+  ✖ clears stale content when maxLinesRendered was inflated by a transient component
+```
+
+The right fix re-anchors `viewportTop` for the **small in-viewport bottom-anchored shrink only**
+(the case that actually jitters), leaving their `fullRender(true)` stale-content paths intact —
+or the maintainers decide those two tests should be updated to the smooth-pin behavior. That's a
+design call for them, which is why this is filed as a Contribution Proposal, not a PR.
 
 ## Test artifacts
 
@@ -168,6 +194,7 @@ expected bottom-anchored slice with no blanks.
 `integrity.mjs` (content/scrollback fidelity). Each imports the real installed `TUI`.
 
 ```
-BEFORE (original):  test FAIL(3)   edge FAIL(3)   integrity FAIL(4)
-AFTER  (patched):   test PASS      edge PASS      integrity PASS
+our repro   BEFORE (original):  test FAIL(3)   edge FAIL(3)   integrity FAIL(4)
+our repro   AFTER  (patched):   test PASS      edge PASS      integrity PASS
+tui-render  AFTER  (patched):   21 PASS, 2 FAIL  (see conflict above)
 ```

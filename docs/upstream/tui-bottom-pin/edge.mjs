@@ -34,7 +34,7 @@ console.log("\n[1] multi-line shrink (drop 3)");
 	src.lines = buf(chat(15)); tui.doRender();
 	const a = rowsOf(emu);
 	const fr = tui.fullRedraws;
-	src.lines = buf(chat(15, [5, 6, 7])); tui.doRender();
+	src.lines = buf(chat(15, [10, 11, 12])); tui.doRender();
 	const b = rowsOf(emu);
 	check(b.editor === a.editor && b.powerbar === a.powerbar && b.footer === a.footer,
 		`bottom pinned across 3-line shrink (${JSON.stringify(a)} -> ${JSON.stringify(b)})`);
