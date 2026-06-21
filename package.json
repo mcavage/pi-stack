@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Multi-model pi coding agent harness on a Docker Hardened (DHI) Debian base",
+  "license": "MIT",
   "keywords": [
     "pi-package"
   ],
