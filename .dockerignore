@@ -6,6 +6,6 @@ pi-kit/
 *.zip
 node_modules/
 .DS_Store
-*.db
-*.db-*
+**/*.db
+**/*.db-*
 docs/

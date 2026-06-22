@@ -11,7 +11,7 @@
 //   PI_STACK_MEMORY_DIR  (default: ../mcp/memory relative to this file)
 //   MEMORY_DB            (default: <dir>/memory.db)
 
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -69,10 +69,22 @@ function formatBlock(hits: any[]): string | null {
 	].join("\n");
 }
 
+// The project you're in now, used to boost its memories. Workspace dir name is
+// a stable enough id; global memories (project=null) always rank at par.
+function currentProject(ctx: any): string | null {
+	const cwd = (typeof ctx?.cwd === "string" && ctx.cwd) || process.cwd();
+	const name = basename(cwd);
+	return name && name !== "/" ? name : null;
+}
+
 // Pure and testable: prompt in, injected block out (or null).
-export async function buildRecallBlock(store: any, prompt: string): Promise<string | null> {
+export async function buildRecallBlock(
+	store: any,
+	prompt: string,
+	project: string | null = null,
+): Promise<string | null> {
 	if (!prompt || !prompt.trim()) return null;
-	const hits = await store.recall(prompt, { limit: 6, charBudget: 1000 });
+	const hits = await store.recall(prompt, { limit: 6, charBudget: 1000, project });
 	return formatBlock(hits);
 }
 
@@ -81,7 +93,7 @@ export default function (pi: any) {
 		safe(async () => {
 			const prompt = extractPrompt(event, ctx);
 			const store = await getStore();
-			const block = await buildRecallBlock(store, prompt);
+			const block = await buildRecallBlock(store, prompt, currentProject(ctx));
 			if (!block) return undefined;
 			return { systemPrompt: (event?.systemPrompt ?? "") + "\n\n" + block };
 		}),
@@ -92,7 +104,9 @@ export default function (pi: any) {
 		handler: async (args: any, ctx: any) =>
 			safe(async () => {
 				const store = await getStore();
-				const hits = await store.recall(String(args ?? "").trim());
+				const hits = await store.recall(String(args ?? "").trim(), {
+					project: currentProject(ctx),
+				});
 				const text = hits.length
 					? hits.map((h: any) => `• ${h.row.content}`).join("\n")
 					: "(nothing)";

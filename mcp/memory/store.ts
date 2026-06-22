@@ -29,6 +29,7 @@ export interface RememberInput {
 	confidence?: number; // 0..1, default 0.8
 	source?: string; // "user" | "watcher" | "import" | ...
 	tags?: string[];
+	project?: string | null; // null/undefined = global (applies everywhere)
 }
 
 export interface MemoryRow {
@@ -45,6 +46,7 @@ export interface MemoryRow {
 	expires_at: string | null;
 	source: string;
 	tags: string; // JSON array
+	project: string | null;
 	embedding: string | null; // JSON number[]
 }
 
@@ -58,6 +60,7 @@ export interface RecallOptions {
 	limit?: number; // default 8
 	charBudget?: number; // default 1200 — the working set stays small on purpose
 	kind?: Kind;
+	project?: string | null; // the project you're in now; boosts its memories
 }
 
 // Embedder is injected so it's swappable and the store works without one.
@@ -73,6 +76,12 @@ const MIN_RELEVANCE = 0.15; // drop weak matches so the working set stays signal
 // These are embedder-specific; revisit when MEMORY_EMBED_MODEL changes.
 const VEC_FLOOR = 0.45;
 const VEC_CEIL = 0.8;
+
+// One global store, but every memory can be tagged with the project it came from
+// (null = global, applies everywhere). Recall boosts the current project's
+// memories and deprioritizes other projects', without ever hiding global facts.
+const PROJECT_MATCH_BOOST = 1.5; // memory from the project you're in
+const PROJECT_OTHER_FACTOR = 0.5; // memory from a different project (kept, ranked lower)
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -91,6 +100,7 @@ CREATE TABLE IF NOT EXISTS memories (
   expires_at  TEXT,
   source      TEXT NOT NULL,
   tags        TEXT NOT NULL DEFAULT '[]',
+  project     TEXT,
   embedding   TEXT,
   deleted_at  TEXT
 );
@@ -143,7 +153,18 @@ export class MemoryStore {
 		this.db = new DatabaseSync(path);
 		this.db.exec("PRAGMA journal_mode = WAL;");
 		this.db.exec(SCHEMA);
+		this.migrate();
 		this.embed = opts.embedder ?? null;
+	}
+
+	// Forward-only migrations for DBs created before a column existed.
+	private migrate(): void {
+		const cols = this.db.prepare("PRAGMA table_info(memories)").all() as {
+			name: string;
+		}[];
+		if (!cols.some((c) => c.name === "project")) {
+			this.db.exec("ALTER TABLE memories ADD COLUMN project TEXT");
+		}
 	}
 
 	close(): void {
@@ -180,6 +201,7 @@ export class MemoryStore {
 		const confidence = input.confidence ?? 0.8;
 		const source = input.source ?? "user";
 		const tags = JSON.stringify(input.tags ?? []);
+		const project = input.project ?? null;
 		const created = nowIso();
 
 		let expiresAt: string | null = null;
@@ -198,8 +220,8 @@ export class MemoryStore {
 		const res = this.db
 			.prepare(
 				`INSERT INTO memories
-         (id, kind, content, content_hash, durability, confidence, source, tags, created_at, expires_at, embedding)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, kind, content, content_hash, durability, confidence, source, tags, project, created_at, expires_at, embedding)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				id,
@@ -210,6 +232,7 @@ export class MemoryStore {
 				confidence,
 				source,
 				tags,
+				project,
 				created,
 				expiresAt,
 				embedding,
@@ -303,7 +326,16 @@ export class MemoryStore {
 			const recency = Math.pow(2, -ageDays / RECENCY_HALFLIFE_DAYS);
 			const freqBoost = 1 + Math.log(row.frequency);
 			const rewardBoost = 1 + row.reward;
-			const score = relevance * row.confidence * recency * freqBoost * rewardBoost;
+			// Prefer the project you're in; keep global facts at par; rank other
+			// projects' memories lower without hiding them.
+			let projectFactor = 1;
+			if (opts.project) {
+				if (row.project === opts.project) projectFactor = PROJECT_MATCH_BOOST;
+				else if (row.project && row.project !== opts.project)
+					projectFactor = PROJECT_OTHER_FACTOR;
+			}
+			const score =
+				relevance * row.confidence * recency * freqBoost * rewardBoost * projectFactor;
 			scored.push({ row, score, relevance });
 		}
 
