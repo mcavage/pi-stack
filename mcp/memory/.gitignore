@@ -1,0 +1,4 @@
+memory.db
+memory.db-*
+node_modules/
+data/
