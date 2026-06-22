@@ -32,6 +32,17 @@ read it before changing things, and keep it current as you learn.
 - **Testing:** never create/remove a sandbox named `pi-stack-pi-stack` — that's what `make run` uses, so you'll collide and strand sbx state. Use `--name pi-stack-test`.
 - **Load-check an extension without keys:** `docker run --rm docker.io/mcavage/pi-stack:0.0.1 bash -lc 'pi -p hi'` → "No API key" means extensions loaded fine; "Failed to load extension …" means fix it before loading.
 
+## Updating pi (mechanical, don't relearn)
+
+pi is pinned via `ARG PI_PACKAGE=@earendil-works/pi-coding-agent@<version>` in the Dockerfile. The in-sandbox "Update available" banner just means a newer point release shipped (pi checks npm at runtime); it returns on every release, so bump intentionally. To bump:
+
+1. **Find the target version:** `npm view @earendil-works/pi-coding-agent version` (latest), or pick a specific one from `npm view @earendil-works/pi-coding-agent versions`.
+2. **Edit the `PI_PACKAGE` ARG** in the Dockerfile to `@earendil-works/pi-coding-agent@<version>`. Changing the ARG busts the pi-install layer so the rebuild actually reinstalls.
+3. **`make load`** (rebuild + load).
+4. **Verify the vendored tui patch still applied:** the build log must show `[apply-tui-bottom-pin] patched`, NOT an `anchor not found` warning. If it warns, the renderer moved: refresh `scripts/patches/tui-bottom-pin.block.txt` and the anchor in `apply-tui-bottom-pin.mjs` against the new `@earendil-works/pi-tui/dist/tui.js` (see Hard-won gotchas).
+5. **Verify the version:** `docker run --rm --entrypoint pi docker.io/mcavage/pi-stack:0.0.1 --version`.
+6. **Recreate sandboxes** to pick up the new pi (they keep their creation-time image): `sbx rm -f <name>` then re-run. A stale sandbox is also the usual cause of in-sandbox auth 401s and "missing extension" surprises, since it carries old image + proxy wiring.
+
 ## Writing extensions (`extensions/*.ts`)
 
 - Shape: `export default function (pi: any) { … }`. pi loads `.ts` **directly** (no build step), with **full Node globals at runtime** — `process`, `require`, `setInterval` all work. `@types/node` + `tsconfig.json` make pi-lens/tsserver recognize them. **Do NOT "fix" `process`/`require` errors by deleting them** — they're real at runtime; it was only a type-lint gap (now configured).

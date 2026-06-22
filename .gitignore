@@ -4,4 +4,3 @@ pi-stack.tar
 node_modules/
 .pi-sessions/
 .pi-lens/
-docs/design/
