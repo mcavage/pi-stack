@@ -11,6 +11,7 @@
 //   MEMORY_TIMEOUT_MS  default 2000 (a slow store must never stall a turn)
 
 import { basename } from "node:path";
+import { execSync } from "node:child_process";
 
 const MEMORY_URL = process.env.MEMORY_URL ?? "http://host.docker.internal:11435";
 const TIMEOUT_MS = Number(process.env.MEMORY_TIMEOUT_MS ?? 2000);
@@ -36,12 +37,24 @@ async function rpc(method: string, params: any): Promise<any> {
 	return j?.result ?? null;
 }
 
-// The project you're in now, used to boost its memories. Workspace dir name is a
-// stable enough id; global memories (project=null) always rank at par.
+// The project you're in now, used to boost its memories. Inside the sandbox every
+// project mounts at /home/agent/workspace, so the dir name is useless; use the git
+// remote (stable across machines). Cached per process; null = global.
+let _project: string | null | undefined;
 function currentProject(ctx: any): string | null {
+	if (_project !== undefined) return _project;
 	const cwd = (typeof ctx?.cwd === "string" && ctx.cwd) || process.cwd();
-	const name = basename(cwd);
-	return name && name !== "/" ? name : null;
+	try {
+		const url = execSync(`git -C ${JSON.stringify(cwd)} remote get-url origin`, {
+			encoding: "utf8",
+			timeout: 1500,
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+		const name = url.replace(/\.git$/, "").split(/[/:]/).filter(Boolean).pop();
+		if (name) return (_project = name);
+	} catch {}
+	const base = basename(cwd);
+	return (_project = base && base !== "workspace" && base !== "/" ? base : null);
 }
 
 // The user's submitted text. pi's event shape isn't fully pinned, so try the

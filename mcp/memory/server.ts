@@ -62,19 +62,32 @@ const methods: Record<string, (p: any) => Promise<unknown> | unknown> = {
 			source: p?.source,
 		}),
 	forget: (p) => ({ ok: store.forget(String(p?.id ?? "")) }),
-	// The capture half: a sandbox forwards a finished exchange here, the watcher
-	// (gemma4 on the host) decides what's worth keeping, and we store it. The
-	// agent never had to choose to remember anything.
-	observe: async (p) => {
+	// The capture half: a sandbox forwards a finished exchange here. We ack
+	// immediately and run the watcher in the background, because the sandbox that
+	// called us may exit the instant it gets a response (pi print mode). This
+	// service is long-lived, so the capture finishes on our own time.
+	observe: (p) => {
 		const user = String(p?.user ?? "").slice(0, 8000);
 		const assistant = String(p?.assistant ?? "").slice(0, 8000);
 		const project = p?.project ?? null;
-		if (!user.trim() && !assistant.trim()) return { captured: 0 };
+		if (!user.trim() && !assistant.trim()) return { accepted: false };
+		void captureFromTurn(user, assistant, project);
+		return { accepted: true };
+	},
+};
+
+// The watcher decides what's worth keeping; we store it. Runs detached from the
+// request so the caller never waits on a local-model inference.
+async function captureFromTurn(
+	user: string,
+	assistant: string,
+	project: string | null,
+): Promise<void> {
+	try {
 		const w = await watch(user, assistant);
-		if (!w) return { captured: 0, watcher: "unavailable" };
+		if (!w) return;
 		const rewardSeed = w.valence * 0.3; // pleased turns seed slightly higher
-		let captured = 0;
-		for (const f of w.facts) {
+		for (const f of w.facts)
 			await store.remember({
 				content: f,
 				kind: "fact",
@@ -84,9 +97,7 @@ const methods: Record<string, (p: any) => Promise<unknown> | unknown> = {
 				source: "watcher",
 				project,
 			});
-			captured++;
-		}
-		for (const c of w.corrections) {
+		for (const c of w.corrections)
 			await store.remember({
 				content: c,
 				kind: "learning",
@@ -96,11 +107,14 @@ const methods: Record<string, (p: any) => Promise<unknown> | unknown> = {
 				source: "watcher",
 				project,
 			});
-			captured++;
-		}
-		return { captured, valence: w.valence, facts: w.facts.length, corrections: w.corrections.length };
-	},
-};
+		if (w.facts.length || w.corrections.length)
+			console.log(
+				`captured ${w.facts.length} fact(s), ${w.corrections.length} correction(s) (valence ${w.valence})`,
+			);
+	} catch (e: any) {
+		console.error("capture failed:", e?.message ?? e);
+	}
+}
 
 function readBody(req: IncomingMessage): Promise<string> {
 	return new Promise((resolve, reject) => {
