@@ -8,7 +8,11 @@
 #   - NPM_CONFIG_PREFIX=/usr/local/share/npm-global on PATH
 #   - NO_PROXY for localhost ranges, BASH_ENV=/etc/sandbox-persistent.sh
 ###############################################################################
-ARG PI_PACKAGE=@earendil-works/pi-coding-agent
+# Pinned for deterministic builds. Bump this to clear pi's "update available"
+# nag (pi checks npm at runtime, so a new release always nags until you rebump).
+# When bumping, re-check the vendored tui patch still applies (build logs print
+# "[apply-tui-bottom-pin] patched" vs an "anchor not found" warning).
+ARG PI_PACKAGE=@earendil-works/pi-coding-agent@0.79.10
 
 # Hardened Node, maintained by Docker (DHI). Debian/glibc, so our entire apt
 # toolchain (clangd, chromium, gh, ruff, build-essential) keeps working — we just
