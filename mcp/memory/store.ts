@@ -30,6 +30,7 @@ export interface RememberInput {
 	source?: string; // "user" | "watcher" | "import" | ...
 	tags?: string[];
 	project?: string | null; // null/undefined = global (applies everywhere)
+	reward?: number; // -1..1 seed from the watcher's valence; default 0
 }
 
 export interface MemoryRow {
@@ -202,6 +203,7 @@ export class MemoryStore {
 		const source = input.source ?? "user";
 		const tags = JSON.stringify(input.tags ?? []);
 		const project = input.project ?? null;
+		const reward = Math.max(-1, Math.min(1, input.reward ?? 0));
 		const created = nowIso();
 
 		let expiresAt: string | null = null;
@@ -220,8 +222,8 @@ export class MemoryStore {
 		const res = this.db
 			.prepare(
 				`INSERT INTO memories
-         (id, kind, content, content_hash, durability, confidence, source, tags, project, created_at, expires_at, embedding)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, kind, content, content_hash, durability, confidence, reward, source, tags, project, created_at, expires_at, embedding)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				id,
@@ -230,6 +232,7 @@ export class MemoryStore {
 				hash,
 				durability,
 				confidence,
+				reward,
 				source,
 				tags,
 				project,

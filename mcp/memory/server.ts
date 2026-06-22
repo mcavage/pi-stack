@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { MemoryStore } from "./store.ts";
 import { embed, embedderAvailable } from "./embeddings.ts";
+import { watch } from "./watcher.ts";
 
 const PORT = Number(process.env.MEMORY_PORT ?? 11435);
 // Loopback by default; Docker Desktop forwards host.docker.internal:PORT here.
@@ -61,6 +62,44 @@ const methods: Record<string, (p: any) => Promise<unknown> | unknown> = {
 			source: p?.source,
 		}),
 	forget: (p) => ({ ok: store.forget(String(p?.id ?? "")) }),
+	// The capture half: a sandbox forwards a finished exchange here, the watcher
+	// (gemma4 on the host) decides what's worth keeping, and we store it. The
+	// agent never had to choose to remember anything.
+	observe: async (p) => {
+		const user = String(p?.user ?? "").slice(0, 8000);
+		const assistant = String(p?.assistant ?? "").slice(0, 8000);
+		const project = p?.project ?? null;
+		if (!user.trim() && !assistant.trim()) return { captured: 0 };
+		const w = await watch(user, assistant);
+		if (!w) return { captured: 0, watcher: "unavailable" };
+		const rewardSeed = w.valence * 0.3; // pleased turns seed slightly higher
+		let captured = 0;
+		for (const f of w.facts) {
+			await store.remember({
+				content: f,
+				kind: "fact",
+				durability: "durable",
+				confidence: 0.65,
+				reward: rewardSeed,
+				source: "watcher",
+				project,
+			});
+			captured++;
+		}
+		for (const c of w.corrections) {
+			await store.remember({
+				content: c,
+				kind: "learning",
+				durability: "durable",
+				confidence: 0.75,
+				reward: rewardSeed,
+				source: "watcher",
+				project,
+			});
+			captured++;
+		}
+		return { captured, valence: w.valence, facts: w.facts.length, corrections: w.corrections.length };
+	},
 };
 
 function readBody(req: IncomingMessage): Promise<string> {
