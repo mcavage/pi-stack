@@ -61,12 +61,13 @@ network:
     - mcp.exa.ai
     - generativelanguage.googleapis.com
     - api.perplexity.ai
-    # Host Ollama for memory embeddings (the recall extension). host-internal
-    # traffic bypasses the proxy MITM (see NO_PROXY in the Dockerfile); the store
-    # falls back to full-text search if Ollama isn't reachable. Same pattern the
-    # gm-team kit uses to reach host services on host.docker.internal.
-    - host.docker.internal:11434
-    - localhost:11434
+    # Host memory service (the recall extension calls it over JSON-RPC). The store
+    # and its embeddings live on the host; the sandbox only needs this URL. Host-
+    # internal traffic bypasses the proxy MITM (see NO_PROXY in the Dockerfile);
+    # recall is skipped if the service isn't running. Same pattern the gm-team kit
+    # uses to reach host services on host.docker.internal.
+    - host.docker.internal:11435
+    - localhost:11435
 
 credentials:
   sources:

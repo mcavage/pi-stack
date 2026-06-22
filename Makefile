@@ -10,7 +10,7 @@ IMAGE       ?= docker.io/$(DOCKER_USER)/pi-stack:$(VERSION)
 LATEST      ?= docker.io/$(DOCKER_USER)/pi-stack:latest
 KIT         ?= ./pi-kit
 
-.PHONY: help build load publish validate inspect run secrets pack install clean
+.PHONY: help build load publish validate inspect run memory-serve secrets pack install clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -46,6 +46,10 @@ secrets: ## Store provider API keys as global sbx service secrets
 
 run: ## Launch a pi-stack sandbox in the current directory
 	sbx run pi-stack --kit $(KIT) .
+
+memory-serve: ## Run the host-side memory service (global store, JSON-RPC on :11435)
+	@echo "memory service: sandboxes reach this at host.docker.internal:11435"
+	node mcp/memory/server.ts
 
 pack: ## Package the kit as a distributable zip
 	sbx kit pack $(KIT) -o pi-stack-kit.zip

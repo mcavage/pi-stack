@@ -5,6 +5,7 @@
   "type": "module",
   "description": "pi-stack memory store: facts + learnings, scored recall, local embeddings. No native deps (Node built-in node:sqlite).",
   "scripts": {
+    "serve": "node server.ts",
     "demo": "node cli.ts demo",
     "stats": "node cli.ts stats"
   }

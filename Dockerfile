@@ -120,21 +120,15 @@ COPY --chown=agent:agent extensions/   /home/agent/.pi/agent/extensions/
 COPY --chown=agent:agent agents/       /home/agent/.pi/agent/agents/
 COPY --chown=agent:agent themes/       /home/agent/.pi/agent/themes/
 
-# --- memory store (self-learning loop) ----------------------------------------
-# The recall extension baked above imports this store. It's dependency-free
-# TypeScript on Node's built-in node:sqlite. PI_STACK_MEMORY_DIR points the
-# extension at the code; MEMORY_DB lives on the workspace mount so memory
-# survives sandbox recreation. Embeddings are best-effort against the host's
-# Ollama and fall back to full-text search if it can't be reached.
-COPY --chown=agent:agent mcp/memory/ /usr/local/share/pi-stack/memory/
-ENV PI_STACK_MEMORY_DIR=/usr/local/share/pi-stack/memory \
-    MEMORY_DB=/home/agent/workspace/.pi-memory/memory.db \
-    MEMORY_EMBED_MODEL=nomic-embed-text \
-    OLLAMA_HOST=http://host.docker.internal:11434
+# --- memory (self-learning loop) ----------------------------------------------
+# The recall extension baked above is a thin client. The store itself runs on the
+# HOST (global, single writer, persistent) and the extension calls it over
+# JSON-RPC. Nothing about the store ships in the image; it only needs the URL.
+ENV MEMORY_URL=http://host.docker.internal:11435
 
 # --- sandbox runtime conventions ----------------------------------------------
-# host.docker.internal bypasses the proxy so the memory embedder can reach the
-# host's Ollama directly (falls back to full-text search if it's unreachable).
+# host.docker.internal bypasses the proxy so the recall extension can reach the
+# host memory service directly (recall is skipped if it isn't running).
 ENV NO_PROXY=localhost,127.0.0.1,::1,172.17.0.0/16,host.docker.internal \
     no_proxy=localhost,127.0.0.1,::1,172.17.0.0/16,host.docker.internal \
     BASH_ENV=/etc/sandbox-persistent.sh \
