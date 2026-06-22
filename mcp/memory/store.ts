@@ -31,6 +31,7 @@ export interface RememberInput {
 	tags?: string[];
 	project?: string | null; // null/undefined = global (applies everywhere)
 	reward?: number; // -1..1 seed from the watcher's valence; default 0
+	dedupe?: number; // if set, skip a near-identical memory (cosine >= this) and reaffirm it
 }
 
 export interface MemoryRow {
@@ -172,22 +173,44 @@ export class MemoryStore {
 		this.db.close();
 	}
 
-	// Reaffirm an existing identical memory (bump frequency + confidence) instead
-	// of storing a duplicate. Returns the row id if it was a reaffirm, else null.
-	private reaffirm(hash: string): string | null {
-		const existing = this.db
-			.prepare(
-				"SELECT id, confidence FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-			)
-			.get(hash) as { id: string; confidence: number } | undefined;
-		if (!existing) return null;
-		const newConf = Math.min(1, existing.confidence + 0.05);
+	// Bump an existing memory's frequency + confidence (used by exact and semantic
+	// reaffirmation).
+	private bump(id: string, confidence: number): void {
 		this.db
 			.prepare(
 				"UPDATE memories SET frequency = frequency + 1, confidence = ?, last_accessed = ? WHERE id = ?",
 			)
-			.run(newConf, nowIso(), existing.id);
+			.run(Math.min(1, confidence + 0.05), nowIso(), id);
+	}
+
+	// Reaffirm an exactly-identical memory instead of storing a duplicate.
+	private reaffirm(hash: string): string | null {
+		const existing = this.db
+			.prepare("SELECT id, confidence FROM memories WHERE content_hash = ? AND deleted_at IS NULL")
+			.get(hash) as { id: string; confidence: number } | undefined;
+		if (!existing) return null;
+		this.bump(existing.id, existing.confidence);
 		return existing.id;
+	}
+
+	// Nearest existing memory by embedding, if within threshold. Used to catch
+	// paraphrases the watcher re-extracts of something already stored.
+	private findSimilar(vec: number[], threshold: number): { id: string; confidence: number } | null {
+		const rows = this.db
+			.prepare("SELECT id, confidence, embedding FROM memories WHERE deleted_at IS NULL AND embedding IS NOT NULL")
+			.all() as { id: string; confidence: number; embedding: string }[];
+		let best = threshold;
+		let hit: { id: string; confidence: number } | null = null;
+		for (const r of rows) {
+			try {
+				const c = cosine(vec, JSON.parse(r.embedding));
+				if (c >= best) {
+					best = c;
+					hit = { id: r.id, confidence: r.confidence };
+				}
+			} catch {}
+		}
+		return hit;
 	}
 
 	async remember(input: RememberInput): Promise<{ id: string; reaffirmed: boolean }> {
@@ -213,9 +236,21 @@ export class MemoryStore {
 		}
 
 		let embedding: string | null = null;
+		let vec: number[] | null = null;
 		if (this.embed) {
-			const vec = await this.embed(content);
+			vec = await this.embed(content);
 			if (vec) embedding = JSON.stringify(vec);
+		}
+
+		// Semantic de-dup: the watcher can re-extract a paraphrase of something
+		// already stored (recall surfaces a fact, the agent restates it, the
+		// watcher captures it again). Reaffirm the existing one instead.
+		if (input.dedupe != null && vec) {
+			const sim = this.findSimilar(vec, input.dedupe);
+			if (sim) {
+				this.bump(sim.id, sim.confidence);
+				return { id: sim.id, reaffirmed: true };
+			}
 		}
 
 		const id = randomUUID();

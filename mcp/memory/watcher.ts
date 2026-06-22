@@ -16,26 +16,27 @@ export interface WatchResult {
 	valence: number; // -1 frustrated .. 0 neutral .. 1 pleased
 }
 
-const SYSTEM = `You watch ONE finished turn between a user and their coding agent and extract only what is worth remembering for future sessions.
+const SYSTEM = `You read ONE message a user sent to their coding agent and extract only what is worth remembering for future sessions, plus the user's sentiment. You see ONLY the user's message, never the agent's reply, so every fact must come from what the user themselves said.
 
-Be very conservative. Most turns contain nothing worth saving. Saving noise is worse than saving nothing.
+Be very conservative. Most messages contain nothing worth saving. Saving noise is worse than saving nothing.
 
 Return JSON:
-- "facts": durable facts, preferences, or decisions the USER stated about themselves, their tools, or how they want to work. Each self-contained and reusable weeks from now.
-- "corrections": lessons where the user corrected the agent ("don't do X", "do Y instead"). Phrase each as a durable rule.
-- "valence": -1 (frustrated) to 1 (pleased), how the user felt about the agent's work. 0 if neutral or unclear.
+- "facts": durable facts, preferences, or decisions the user asserts about themselves, their tools, or how they want to work. Each self-contained and reusable weeks from now.
+- "corrections": instructions where the user tells the agent to stop doing something or do it differently ("don't X", "always Y"). Phrase each as a durable rule.
+- "valence": -1 (frustrated) to 1 (pleased) reading the user's tone. 0 if neutral.
 
 Hard rules:
-- NEVER extract a fact about the user's mood, satisfaction, or feelings. That is what valence is for. "The user was happy" is not a fact.
-- Acknowledgments and reactions ("thanks", "great", "cool", "that works", "perfect") contain NO facts and NO corrections. Return empty arrays.
-- Questions, task-specific details, code, file names, and the agent's own statements are NOT facts.
-- If something is a correction, put it only in corrections, not also in facts.
+- Only what the USER asserts. A QUESTION states no facts ("which branch do I use?" => no facts).
+- NEVER a fact about mood or feelings; that is what valence is for.
+- Acknowledgments ("thanks", "great", "cool", "that works") => empty facts and corrections.
+- Code, file names, and one-off task details are NOT durable facts.
 - When in doubt, leave it out. Empty arrays are the common, correct answer.
 
 Examples:
-User: "thanks, that works great" / Agent: "glad it helped" => {"facts":[],"corrections":[],"valence":1}
-User: "always squash before merging" / Agent: "ok" => {"facts":["The user wants commits squashed before merging."],"corrections":[],"valence":0}
-User: "no, don't hardcode the port, read it from env" / Agent: "fixed" => {"facts":[],"corrections":["Read the port from the environment; do not hardcode it."],"valence":-0.3}
+"thanks, that works great" => {"facts":[],"corrections":[],"valence":1}
+"which branch should I use, and what machine am I on?" => {"facts":[],"corrections":[],"valence":0}
+"always squash before merging" => {"facts":["The user wants commits squashed before merging."],"corrections":[],"valence":0}
+"no, don't hardcode the port, read it from env" => {"facts":[],"corrections":["Read the port from the environment; do not hardcode it."],"valence":-0.3}
 
 Output only the JSON.`;
 
@@ -49,7 +50,9 @@ const SCHEMA = {
 	required: ["facts", "corrections", "valence"],
 };
 
-export async function watch(user: string, assistant: string): Promise<WatchResult | null> {
+// Only the user's message is read, by design: facts must come from what the user
+// says, never from the agent restating something it recalled.
+export async function watch(user: string): Promise<WatchResult | null> {
 	try {
 		const res = await fetch(`${OLLAMA_HOST}/api/chat`, {
 			method: "POST",
@@ -61,7 +64,7 @@ export async function watch(user: string, assistant: string): Promise<WatchResul
 				options: { temperature: 0 },
 				messages: [
 					{ role: "system", content: SYSTEM },
-					{ role: "user", content: `User said:\n${user}\n\nAgent replied:\n${assistant}` },
+					{ role: "user", content: user },
 				],
 			}),
 		});

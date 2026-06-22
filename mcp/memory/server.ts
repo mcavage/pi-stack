@@ -84,7 +84,7 @@ async function captureFromTurn(
 	project: string | null,
 ): Promise<void> {
 	try {
-		const w = await watch(user, assistant);
+		const w = await watch(user); // user message only; never the agent's reply
 		if (!w) return;
 		const rewardSeed = w.valence * 0.3; // pleased turns seed slightly higher
 		for (const f of w.facts)
@@ -96,6 +96,7 @@ async function captureFromTurn(
 				reward: rewardSeed,
 				source: "watcher",
 				project,
+				dedupe: 0.9, // collapse paraphrases of facts we already hold
 			});
 		for (const c of w.corrections)
 			await store.remember({
@@ -106,6 +107,7 @@ async function captureFromTurn(
 				reward: rewardSeed,
 				source: "watcher",
 				project,
+				dedupe: 0.9, // collapse paraphrases of facts we already hold
 			});
 		if (w.facts.length || w.corrections.length)
 			console.log(
