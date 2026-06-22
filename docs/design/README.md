@@ -52,6 +52,10 @@ The ~80 gm-team skills and agent roles, reorganized into ways of working. We
 design each as a unit and resolve its conflicts to one best version. We do not
 port files.
 
+The full classification (every skill + agent into core / hybrid / overlay, with
+dependencies and fate) is the [migration manifest](./MIGRATION-MANIFEST.md). It
+also recommends the cluster sequence.
+
 | # | Cluster | Status |
 |---|---|---|
 | 1 | [Self-learning loop](./self-learning-loop.md) | **built** (steps 1-3); step 4 + reward attribution are TODO in the doc |
