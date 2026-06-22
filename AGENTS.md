@@ -23,13 +23,14 @@ read it before changing things, and keep it current as you learn.
 
 ## Build → load → run (read this before iterating)
 
-- **Image or baked files** (Dockerfile, settings, keybindings, agents/skills/extensions/themes) → `make load` (build + `docker save` + `sbx template load`). The sbx runtime has its **own image store**, so a locally-built image MUST be loaded in — otherwise sbx tries to *pull* it and 500s. `make load` is **heavy** (~1GB tar); batch changes.
+- **Image or baked files** (Dockerfile, settings, keybindings, agents/skills/extensions/themes) → `make load` (build + `docker save` + `sbx template load`). The sbx runtime has its **own image store**, so a locally-built image MUST be loaded in — otherwise sbx pulls it from the registry. `make load` is **heavy** (~1GB tar); batch changes.
+  - **The image tag MUST be pinned (never `:latest`).** Docker re-pulls `:latest` on every run even when the image is already loaded, so `make load` gets ignored and you keep downloading. A pinned tag (`VERSION` in the Makefile = `image:` in `pi-kit/spec.yaml` = `version` in package.json) gets IfNotPresent semantics: use the loaded build if present, else pull once.
   - **You (the agent) CANNOT run `make load` / `make run` from inside a pi-stack sandbox** — they need the **host's** Docker + `sbx` CLI, which the VM has no access to. Don't offer to. Edit the baked files, sync them into the live `~/.pi/agent/...` dir + `/reload` for the current session, and tell the **user** to run `make load` on their host to bake it for future sandboxes.
 - **Kit only** (`pi-kit/spec.yaml`) → just `make run` a fresh sandbox. `--kit` applies at sandbox **creation** only — no rebuild needed.
 - **This file** (`AGENTS.md`) and other workspace files are read live from the mount — no rebuild.
 - A running sandbox keeps its **creation-time image**; recreate (`sbx rm -f … && make run`) to pick up image changes.
 - **Testing:** never create/remove a sandbox named `pi-stack-pi-stack` — that's what `make run` uses, so you'll collide and strand sbx state. Use `--name pi-stack-test`.
-- **Load-check an extension without keys:** `docker run --rm pi-stack:latest bash -lc 'pi -p hi'` → "No API key" means extensions loaded fine; "Failed to load extension …" means fix it before loading.
+- **Load-check an extension without keys:** `docker run --rm docker.io/mcavage/pi-stack:0.0.1 bash -lc 'pi -p hi'` → "No API key" means extensions loaded fine; "Failed to load extension …" means fix it before loading.
 
 ## Writing extensions (`extensions/*.ts`)
 

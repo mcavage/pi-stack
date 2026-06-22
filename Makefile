@@ -1,6 +1,13 @@
 # Set DOCKER_USER to your Docker Hub namespace before `make publish`.
+# VERSION is a PINNED tag (never `latest`): Docker re-pulls `:latest` on every
+# run even when the image is already loaded, so `make load` would be ignored. A
+# pinned tag gets IfNotPresent semantics — use the loaded local build if present,
+# else pull once. Keep in sync with `version` in package.json and `image:` in
+# pi-kit/spec.yaml.
 DOCKER_USER ?= mcavage
-IMAGE       ?= docker.io/$(DOCKER_USER)/pi-stack:latest
+VERSION     ?= 0.0.1
+IMAGE       ?= docker.io/$(DOCKER_USER)/pi-stack:$(VERSION)
+LATEST      ?= docker.io/$(DOCKER_USER)/pi-stack:latest
 KIT         ?= ./pi-kit
 
 .PHONY: help build load publish validate inspect run secrets pack install clean
@@ -17,9 +24,14 @@ load: build ## Build, then load the image into the sbx sandbox runtime store (lo
 	sbx template load pi-stack.tar
 	rm -f pi-stack.tar
 
-publish: build ## Push the built image to the registry so consumers can pull it (run `docker login` first)
+publish: build ## Push the built image to the registry as :$(VERSION) and :latest (run `docker login` first)
 	docker push $(IMAGE)
-	@echo "Published $(IMAGE) — consumers: sbx run pi-stack --kit \"git+https://github.com/$(DOCKER_USER)/pi-stack.git#dir=pi-kit\""
+	docker tag $(IMAGE) $(LATEST)
+	docker push $(LATEST)
+	@echo "Published $(IMAGE) and $(LATEST)."
+	@echo "  Discoverability tag: $(LATEST) (for manual docker pull / Hub browsing)."
+	@echo "  Kit pins :$(VERSION), so consumers + local runs resolve the version (no re-pull)."
+	@echo "  Consumers: sbx run pi-stack --kit \"git+https://github.com/$(DOCKER_USER)/pi-stack.git#dir=pi-kit\""
 
 validate: ## Validate the sandbox kit
 	sbx kit validate $(KIT)
