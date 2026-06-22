@@ -1,24 +1,28 @@
 --- /tmp/pi-patch-backup/tui.js.orig	2026-06-21 09:24:37.340168675 -0700
-+++ /usr/local/share/npm-global/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/tui.js	2026-06-21 09:41:45.450246804 -0700
-@@ -1079,6 +1079,74 @@
++++ /usr/local/share/npm-global/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/tui.js	2026-06-21 11:38:43.429082011 -0700
+@@ -1171,6 +1171,71 @@
              fullRender(true);
              return;
          }
-+        // Bottom-block pin: when content SHRINKS above a bottom-anchored viewport,
-+        // the differential pass below would re-emit the unchanged bottom block
-+        // (editor / powerbar / footer) one or more rows higher, so the input box
-+        // visibly jumps up during streaming (markdown re-wrap, "Thinking..." spacer
-+        // toggling, tool rows collapsing). Instead, re-anchor the viewport to the
-+        // new bottom and repaint the visible window in place with the real buffer
-+        // content. Lines that scrolled just out of view above are pulled back down
-+        // to fill the freed rows, and the bottom block keeps its exact screen rows.
++        // Bottom-block pin: a bottom-anchored buffer SHRINK that reaches this point
++        // (the changed region is within the visible window, so neither the
++        // deleted-tail branch nor the `firstChanged < prevViewportTop` guard above
++        // fired) would otherwise have the differential loop below re-emit the
++        // unchanged bottom block (editor / widgets / footer) one or more rows higher,
++        // because that loop renders relative to the un-re-anchored viewportTop. The
++        // input box + any belowEditor widgets then visibly jump up while streaming
++        // (markdown re-wrap, the hidden "Thinking..." spacer toggling, tool rows
++        // collapsing). Re-anchor to the new bottom and repaint the whole visible
++        // window in place: lines that scrolled just out of view above are pulled back
++        // down to fill the freed rows, so the bottom block keeps its exact screen
++        // rows — no jump, no full-screen clear.
 +        //
-+        // Guards: bottom-anchored before AND after the shrink (so the bottom block
-+        // really is glued to the screen bottom), no overlays (they own their own
-+        // layout/padding), clearOnShrink off (handled above), the divergence is
-+        // within the previously-visible region (so the pulled-in history matches
-+        // the terminal's scrollback), and no kitty images in the visible window
-+        // (image rows need the dedicated reservation path below).
++        // Scoped to the genuine jitter case only: bottom-anchored before AND after
++        // the shrink, no overlays, and no kitty images in the visible window (those
++        // need the reservation path in the differential loop). The deliberate
++        // full-redraw-on-shrink behaviours (deleted-tail moving the viewport up;
++        // stale content from an inflated maxLinesRendered) return via the guards
++        // ABOVE this point and are unaffected.
 +        if (this.overlayStack.length === 0 &&
 +            prevViewportTop > 0 &&
 +            prevViewportTop === this.previousLines.length - height &&
@@ -26,12 +30,6 @@
 +            newLines.length >= height &&
 +            this.previousKittyImageIds.size === 0) {
 +            const newViewportTop = newLines.length - height;
-+            // First index at which the buffers diverge.
-+            let firstDiff = 0;
-+            const minLen = Math.min(newLines.length, this.previousLines.length);
-+            while (firstDiff < minLen && newLines[firstDiff] === this.previousLines[firstDiff]) {
-+                firstDiff++;
-+            }
 +            let visibleImage = false;
 +            for (let r = 0; r < height; r++) {
 +                if (isImageLine(newLines[newViewportTop + r] ?? "")) {
@@ -39,26 +37,24 @@
 +                    break;
 +                }
 +            }
-+            // The divergence must lie at or below the new (lower) viewport top so
-+            // that everything pulled back into view, and the scrollback above it,
-+            // still matches what the terminal already holds.
-+            if (firstDiff >= newViewportTop && !visibleImage) {
-+                let buffer = "\x1b[?2026h"; // Begin synchronized output
++            if (!visibleImage) {
++                logRedraw(`bottom-anchored shrink pin (viewportTop ${prevViewportTop} -> ${newViewportTop})`);
++                let pinBuffer = "\x1b[?2026h"; // Begin synchronized output
 +                // Move the hardware cursor to the top row of the visible screen.
 +                const screenCursorRow = Math.max(0, Math.min(height - 1, hardwareCursorRow - prevViewportTop));
 +                if (screenCursorRow > 0) {
-+                    buffer += `\x1b[${screenCursorRow}A`;
++                    pinBuffer += `\x1b[${screenCursorRow}A`;
 +                }
-+                buffer += "\r";
++                pinBuffer += "\r";
 +                // Repaint every visible row with bottom-anchored content.
 +                for (let r = 0; r < height; r++) {
 +                    if (r > 0)
-+                        buffer += "\r\n";
-+                    buffer += "\x1b[2K";
-+                    buffer += newLines[newViewportTop + r] ?? "";
++                        pinBuffer += "\r\n";
++                    pinBuffer += "\x1b[2K";
++                    pinBuffer += newLines[newViewportTop + r] ?? "";
 +                }
-+                buffer += "\x1b[?2026l"; // End synchronized output
-+                this.terminal.write(buffer);
++                pinBuffer += "\x1b[?2026l"; // End synchronized output
++                this.terminal.write(pinBuffer);
 +                // Cursor now sits on the last visible row = end of content.
 +                this.cursorRow = newLines.length - 1;
 +                this.hardwareCursorRow = newLines.length - 1;
@@ -72,6 +68,7 @@
 +                return;
 +            }
 +        }
-         // Find first and last changed lines
-         let firstChanged = -1;
-         let lastChanged = -1;
++
+         // Render from first changed line to end
+         // Build buffer with all updates wrapped in synchronized output
+         let buffer = "\x1b[?2026h"; // Begin synchronized output

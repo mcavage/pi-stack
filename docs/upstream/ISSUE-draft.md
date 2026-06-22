@@ -29,30 +29,29 @@ source of it.
 ### How? (optional)
 
 Root cause is in `packages/tui/src/tui.ts` `doRender()`: on a **bottom-anchored
-shrink**, the differential repaint re-emits the unchanged bottom block relative to
-the old `viewportTop`, so it lands `index − viewportTop` = one row higher; it never
-re-anchors `viewportTop` to the new bottom.
+shrink whose change is within the visible window** (`firstChanged >= prevViewportTop`),
+the differential loop re-emits the unchanged bottom block relative to the old
+`viewportTop`, one row higher — it never re-anchors `viewportTop`. The shrinks that
+already `fullRender(true)` (deleted-tail; change above the viewport) are a different
+path and are fine.
 
-I have a working proof-of-concept that re-anchors the viewport and repaints the
-visible window in place (pulling history back down), with a headless repro test
-(fake terminal + ANSI emulator measuring real screen rows) that goes red→green.
-**But** it changes the deliberate "full-redraw on a viewport-moving shrink"
-behavior and breaks two existing `tui-render` tests (`full re-renders when deleted
-lines move the viewport upward`, `clears stale content when maxLinesRendered was
-inflated by a transient component`). So before a PR I want to agree on the approach:
-narrow the re-anchor to only the small in-viewport shrink case while preserving your
-full-redraw safety paths, or treat those two behaviors as intended-to-change. Happy
-to implement whichever you prefer.
+I have a fix that adds one guarded branch **after** those full-redraw guards: it
+re-anchors `viewportTop` to the new bottom and repaints the visible window in place.
+It passes the full `tui-render` suite (24/24 — adds a regression test; updates one
+assertion that checked a *mechanism*, `fullRedraws > before`, which the in-place
+clear makes unnecessary — that test's real contract, no stale rows + exact viewport,
+is unchanged and still asserted). `tsgo` + `biome` clean.
 
-I'd like to implement this myself.
+I'd like to implement this myself — patch + tests are ready.
 
 ---
 
 ## Notes for us (NOT part of the issue)
 
-+ PoC patch (dist + ported to `src/tui.ts`) and the headless tests live in
-  `docs/upstream/tui-bottom-pin/`. The source port **compiles** (`tsgo` clean) and
-  passes our repro, but fails 2 of their 23 `tui-render.test.ts` cases — see above.
++ Source patch (`src/tui.ts` + `tui-render.test.ts`) is `tui-bottom-pin/tui-src.patch`;
+  headless harness + the full writeup are alongside in `docs/upstream/`. Verified:
+  `tui-render` 24/24, `tsgo` build clean, `biome` clean.
 + Correct order: issue → maintainer `lgtm` → PR with `npm run check` + `./test.sh`
   green (and **don't** edit `CHANGELOG.md`).
-+ The full technical writeup is in `docs/upstream/tui-bottom-pin.md`.
++ The same fix is vendored into our image (`scripts/patches/`) so we have it now;
+  upstreaming lets us drop the vendored copy.
