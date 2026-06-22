@@ -12,7 +12,7 @@
 //   MEMORY_DB            (default: <dir>/memory.db)
 
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const STORE_DIR = process.env.PI_STACK_MEMORY_DIR || join(here, "..", "mcp", "memory");
@@ -31,8 +31,11 @@ let storePromise: Promise<any> | null = null;
 function getStore(): Promise<any> {
 	if (!storePromise) {
 		storePromise = (async () => {
-			const { MemoryStore } = await import(join(STORE_DIR, "store.ts"));
-			const { embed, embedderAvailable } = await import(join(STORE_DIR, "embeddings.ts"));
+			// file URL so absolute paths import cleanly in the image too.
+			const { MemoryStore } = await import(pathToFileURL(join(STORE_DIR, "store.ts")).href);
+			const { embed, embedderAvailable } = await import(
+				pathToFileURL(join(STORE_DIR, "embeddings.ts")).href
+			);
 			const hasEmb = await embedderAvailable();
 			return new MemoryStore(DB_PATH, hasEmb ? { embedder: embed } : {});
 		})();

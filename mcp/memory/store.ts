@@ -15,6 +15,8 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 
 export type Kind = "fact" | "learning";
 export type Durability = "durable" | "perishable";
@@ -131,6 +133,13 @@ export class MemoryStore {
 	private embed: Embedder | null;
 
 	constructor(path: string, opts: { embedder?: Embedder } = {}) {
+		// Make the DB path "just work" wherever MEMORY_DB points (e.g. a workspace
+		// mount that doesn't exist yet on a fresh sandbox).
+		if (path !== ":memory:") {
+			try {
+				mkdirSync(dirname(path), { recursive: true });
+			} catch {}
+		}
 		this.db = new DatabaseSync(path);
 		this.db.exec("PRAGMA journal_mode = WAL;");
 		this.db.exec(SCHEMA);
