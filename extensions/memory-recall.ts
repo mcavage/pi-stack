@@ -12,6 +12,8 @@
 
 import { basename } from "node:path";
 import { execSync } from "node:child_process";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 
 const MEMORY_URL = process.env.MEMORY_URL ?? "http://host.docker.internal:11435";
 const TIMEOUT_MS = Number(process.env.MEMORY_TIMEOUT_MS ?? 2000);
@@ -24,16 +26,45 @@ const safe = async <T>(fn: () => Promise<T>): Promise<T | undefined> => {
 	}
 };
 
+// IMPORTANT: use node:http, not fetch. In an sbx sandbox pi installs a global
+// undici proxy dispatcher (HTTP_PROXY -> the sbx proxy), and sbx's NO_PROXY does
+// NOT include host.docker.internal, so fetch() to the host store gets routed
+// through the proxy and fails. node:http ignores that dispatcher and goes direct.
+function postJson(urlStr: string, body: unknown, timeoutMs: number): Promise<any> {
+	return new Promise((resolve, reject) => {
+		const u = new URL(urlStr);
+		const data = JSON.stringify(body);
+		const req = (u.protocol === "https:" ? httpsRequest : httpRequest)(
+			{
+				hostname: u.hostname,
+				port: u.port || (u.protocol === "https:" ? 443 : 80),
+				path: u.pathname || "/",
+				method: "POST",
+				headers: { "content-type": "application/json", "content-length": Buffer.byteLength(data) },
+				timeout: timeoutMs,
+			},
+			(res) => {
+				let chunks = "";
+				res.on("data", (c) => (chunks += c));
+				res.on("end", () => {
+					try {
+						resolve(chunks ? JSON.parse(chunks) : null);
+					} catch (e) {
+						reject(e);
+					}
+				});
+			},
+		);
+		req.on("error", reject);
+		req.on("timeout", () => req.destroy(new Error("timeout")));
+		req.write(data);
+		req.end();
+	});
+}
+
 let rpcId = 0;
 async function rpc(method: string, params: any): Promise<any> {
-	const res = await fetch(MEMORY_URL, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
-		signal: AbortSignal.timeout(TIMEOUT_MS),
-	});
-	if (!res.ok) return null;
-	const j = await res.json();
+	const j = await postJson(MEMORY_URL, { jsonrpc: "2.0", id: ++rpcId, method, params }, TIMEOUT_MS);
 	return j?.result ?? null;
 }
 
