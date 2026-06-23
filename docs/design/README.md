@@ -59,10 +59,10 @@ also recommends the cluster sequence.
 | # | Cluster | Status |
 |---|---|---|
 | 1 | [Self-learning loop](./self-learning-loop.md) | **built** (steps 1-3); step 4 + reward attribution are TODO in the doc |
-| 2 | Investigate / debug | todo |
-| 3 | Spec to build | todo |
-| 4 | Review and verification | todo |
-| 5 | Ship / PR | todo |
+| 2 | Investigate / debug | **built** (investigate: +scope-freeze, +3-strikes-then-architecture) |
+| 3 | Spec to build | **built** (spec: +JTBD/assumptions/edge-cases from write-prd) |
+| 4 | Review and verification | **built** (code-review +risk categories; new `verify` + `tdd`; review-gate → cluster 8) |
+| 5 | Ship / PR | **built** (ship: +rebase, +lint, +PR-body) |
 | 6 | Decide / ideate | todo |
 | 7 | Deep research / analysis | todo |
 | 8 | Writing and voice | todo |
