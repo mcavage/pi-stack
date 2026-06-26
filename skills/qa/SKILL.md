@@ -14,15 +14,15 @@ headless `--no-sandbox`).
   given URL.
 
 ## Loop
-1. **Map** — open the app and `snapshot` (accessibility tree); enumerate the key
+1. **Map.** Open the app and `snapshot` (accessibility tree); enumerate the key
    flows (nav, forms, primary actions).
-2. **Exercise** — walk each flow with semantic actions (click/fill/select). Watch
+2. **Exercise.** Walk each flow with semantic actions (click/fill/select). Watch
    for: console errors, broken navigation, dead controls, layout breakage, failed
    network requests, bad empty/error states.
-3. **Evidence** — `screenshot` every bug (before/after where relevant).
-4. **Report** — bugs by severity (critical / high / medium / cosmetic), each with
+3. **Evidence.** `screenshot` every bug (before/after where relevant).
+4. **Report.** Bugs by severity (critical / high / medium / cosmetic), each with
    repro steps, the screenshot, and `path:line` of the likely cause.
-5. **Fix (optional)** — if asked, fix each in source, re-run the flow, confirm
+5. **Fix (optional).** If asked, fix each in source, re-run the flow, confirm
    with a fresh screenshot, gate with `code-review`, then `ship`.
 
 Test responsive widths for layout-sensitive views. Never claim "works" without

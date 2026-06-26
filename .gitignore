@@ -4,3 +4,86 @@ pi-stack.tar
 node_modules/
 .pi-sessions/
 .pi-lens/
+
+
+# 1Password secret references — user-specific (vault/item names); keep local
+config/op-refs.env
+
+
+# all build + sandbox artifacts land here (single ignored dir)
+out/
+
+# local owner-specific Makefile overrides (real Snowflake account/conn, etc.)
+config/local.mk
+
+# --- Open-core boundary: skills (MUST mirror .dockerignore) ---------------------
+# DEFAULT-DENY so `git add -A` can never stage a company/overlay skill (e.g.
+# skills/snowflake with internal schema + ARR figures) into the public repo.
+# Only the generic CORE skills below are tracked; everything else stays local.
+# Keep this list in sync with the !skills/... allowlist in .dockerignore.
+skills/*
+!skills/anti-slop/
+!skills/api-conventions/
+!skills/autoplan/
+!skills/brainstorm/
+!skills/capability-routing/
+!skills/challenge/
+!skills/code-review/
+!skills/competitive-analysis/
+!skills/conventions/
+!skills/delegation-guide/
+!skills/design-review/
+!skills/design-system/
+!skills/docs-standards/
+!skills/document-release/
+!skills/git-conventions/
+!skills/guard/
+!skills/health/
+!skills/ingest/
+!skills/investigate/
+!skills/microcopy-patterns/
+!skills/promote-learnings/
+!skills/prototype-webapp/
+!skills/qa/
+!skills/review-gate/
+!skills/self-audit/
+!skills/setup-user/
+!skills/ship/
+!skills/spec/
+!skills/tdd/
+!skills/verify/
+!skills/wf-engineering/
+!skills/wf-product/
+!skills/wf-prototype/
+!skills/write-like-mark/
+!skills/write-one-pager/
+
+# --- Open-core boundary: agents (MUST mirror .dockerignore) ---------------------
+# DEFAULT-DENY so git add -A can't stage a future company-specific persona.
+agents/*
+!agents/architect.md
+!agents/deep.md
+!agents/designer.md
+!agents/devrel.md
+!agents/dx-consultant.md
+!agents/engineer.md
+!agents/enterprise-admin.md
+!agents/fanout.md
+!agents/finance-analyst.md
+!agents/growth-marketing.md
+!agents/legal.md
+!agents/product-manager.md
+!agents/qa-lead.md
+!agents/review.md
+!agents/security-lead.md
+!agents/sre-lead.md
+!agents/ux-copywriter.md
+
+# --- Private overlay: company-specific host integrations (Snowflake, BambooHR) ---
+# Decoupled from pi-stack-host via self-registration (init): the public tree builds
+# and runs without them; when present locally they self-attach. Keep them OUT of git.
+services/host/snowproxy.go
+services/host/snowproxy_test.go
+services/host/bamboohr.go
+bin/snow
+config/overlay.mk

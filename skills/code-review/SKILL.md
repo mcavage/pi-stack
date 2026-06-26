@@ -32,4 +32,3 @@ point of the second pass is *different blind spots*, not a rubber stamp.
 
 Don't invent issues to look thorough, and don't wave through a real one. Skip
 naming nits and formatting the repo already automates.
-</content>

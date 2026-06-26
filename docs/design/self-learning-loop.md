@@ -9,9 +9,7 @@ instead of hoping the model behaves.
 
 ## As built
 
-- **Store** (`mcp/memory/store.ts`): TypeScript on Node's built-in node:sqlite, no deps. Facts and learnings, a durable/perishable split, scored recall (relevance x confidence x recency x frequency x reward x project-boost), exact and semantic de-dup. Project is tagged from the git remote (inside the sandbox every repo mounts at `/home/agent/workspace`, so the dir name is useless).
-- **Host service** (`mcp/memory/server.ts`): one global store on the host, JSON-RPC over HTTP on `:11435` (not MCP: the only consumer is a pi extension doing an HTTP POST). The sandbox is a microVM with no arbitrary host bind-mounts, so the store lives on the host and sandboxes call it. `make memory-serve`. DB at `~/.pi-stack/memory/memory.db`.
-- **Watcher** (`mcp/memory/watcher.ts`): the capture half. A local model (gemma4 by default, `MEMORY_WATCHER_MODEL`) reads the user's message ONLY (never the agent's reply, so it can't re-capture a restated fact) and extracts durable facts, corrections, and a valence score. Conservative: questions and acknowledgments capture nothing.
+- **Store + host service + watcher** (`services/host/memory.go`, `memembed.go`): Go (`pi-stack-host memory`), on pure-Go sqlite (modernc) with FTS5. Facts and learnings, a durable/perishable split, scored recall (relevance x confidence x recency x frequency x reward x project-boost), exact and semantic de-dup. One global store on the host, JSON-RPC over HTTP on `:11435` (not MCP: the only consumer is a pi extension doing an HTTP POST). The sandbox is a microVM with no arbitrary host bind-mounts, so the store lives on the host and sandboxes call it. `make memory-serve`. DB at `~/.pi-stack/memory/memory.db`. The **watcher** (capture half) runs a local model (gemma4 by default, `MEMORY_WATCHER_MODEL`) over the user's message ONLY (never the agent's reply) and extracts durable facts, time-bound events, corrections, and a valence score. Conservative: questions and acknowledgments capture nothing. (Host code is Go by convention; see AGENTS.md.)
 - **Extensions** (`extensions/memory-recall.ts`, `memory-capture.ts`): the loop, in the sandbox. Recall injects a small working set on `before_agent_start`; capture forwards the previous completed exchange on `before_agent_start` (reliable, pi awaits it) plus `agent_end` (best-effort for the last turn). They use `node:http`, NOT fetch: pi routes fetch through the sbx proxy, which can't reach the host store.
 - **Embeddings**: local via Ollama (`nomic-embed-text`, `MEMORY_EMBED_MODEL`), optional, full-text fallback.
 
@@ -19,15 +17,14 @@ Verified end-to-end in a real sbx sandbox: recall returns seeded facts to the mo
 
 ## Remaining (TODO)
 
-- **Synthesis and promotion (step 4).** The cadence that distills captures, dedupes semantically over time, and graduates a recurring lesson into a proposed (gated) edit to a skill or convention. Not built. The original "staging area" collapsed into direct capture plus semantic de-dup for v1.
+- **Promotion (step 4).** Synthesis runs already (a periodic cadence that distills captures and dedupes semantically — `store.synthesize` on a timer). What's not built is *promotion*: graduating a recurring lesson into a proposed, gated edit to a skill or convention. The original "staging area" collapsed into direct capture plus semantic de-dup for v1.
 - **Reward attribution.** Valence seeds a small reward on new captures, but it does not yet reinforce the specific recalled memories that earned a good outcome. The "attach reward to what produced it" idea is not wired.
-- **Always-on service.** `make memory-serve` must be running; add a launchd plist for boot-start (gm-team has the pattern).
+- **Always-on service.** `make serve` must be running; add a launchd plist for boot-start.
 - **Entities.** Deferred. Facts and learnings only for now.
-- **Push** the `memory-self-learning` branch (github was unreachable from the build shell).
 
 ## The problem, with evidence
 
-The gm-team loop runs on the model's discretion. Capture, recall, and synthesis
+The prior overlay's loop ran on the model's discretion. Capture, recall, and synthesis
 all wait for the model to choose to call a `memory_*` tool, and it mostly
 doesn't. A full read of the system turned up about a dozen failure modes, all the
 same shape: the model skips the tool call and the knowledge is gone.
@@ -74,7 +71,7 @@ Each phase maps to a hook, and every one runs whether or not the model cooperate
 | Capture | turn_end + the watcher | Stage candidates from real signals | yes |
 | Reinforce | on each recall | Bump frequency and access, decay by recency, flag contradictions | yes |
 | Synthesize | scheduled + session_shutdown | Distill candidates into durable facts, dedupe, resolve contradictions, retire stale | yes |
-| Promote | cadence, gated by Mark | Turn a recurring lesson into a proposed edit to a skill or convention | gated |
+| Promote | cadence, gated by the operator | Turn a recurring lesson into a proposed edit to a skill or convention | gated |
 | Decay | TTL + recency | Expire caches, downrank stale, supersede on contradiction | yes |
 
 ## Scoring, the part that's missing today
@@ -131,13 +128,13 @@ resident for free.
 
 The store and the loop are different things and live in different places.
 
-- The MCP server (TypeScript) is the store: facts, learnings, embeddings, and the scored query. No loop logic.
-- The extensions (TypeScript) are the loop: the recall injector, capture plus the watcher, and the synthesis cadence. This is where the work moved off the model.
-- The skills stay thin: `/recall`, `/remember`, `/forget`, and a `review-learnings` surface for promotion. Overrides and review, not the engine. This is the exact inversion of gm-team, where the skills and the model *were* the loop, and that's why it failed.
+- The host service (Go, `pi-stack-host memory`, JSON-RPC over HTTP — not MCP) is the store: facts, learnings, embeddings, and the scored query. No loop logic.
+- The extensions (TypeScript, in-sandbox) are the loop: the recall injector, capture plus the watcher, and the synthesis cadence. This is where the work moved off the model.
+- The skills stay thin: `/recall`, `/remember`, `/forget`, and a `review-learnings` surface for promotion. Overrides and review, not the engine. This is the exact inversion of the earlier skills-driven approach, where the skills and the model *were* the loop, and that's why it failed.
 
 ## What happens to the old skills
 
-| gm-team skill | Fate | Why |
+| old skill | Fate | Why |
 |---|---|---|
 | remember / recall / forget | thin commands | the work moves into extensions |
 | end-session | gone, becomes automatic | session_shutdown plus the synthesis cadence |
@@ -171,4 +168,3 @@ Each one is testable on its own.
 - pi extensions docs: https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md
 - pi SDK docs: https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md
 - AgentHarness API (DeepWiki): https://deepwiki.com/earendil-works/pi/7.2-agentharness-api-(pi-agent-core)
-</content>

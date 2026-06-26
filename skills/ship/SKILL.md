@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Take the working tree from "done" to "PR open" with a quality gate — rebase, run tests + lint, code-review the diff, bump version + changelog, commit, push a branch, open a PR. Stops at PR creation (never auto-merges). Use for "ship", "make a PR", "open a PR", or when the work is ready to land.
+description: Take the working tree from "done" to "PR open" with a quality gate, rebase, run tests + lint, code-review the diff, bump version + changelog, commit, push a branch, open a PR. Stops at PR creation (never auto-merges). Use for "ship", "make a PR", "open a PR", or when the work is ready to land.
 ---
 # ship
 
@@ -35,4 +35,3 @@ never force-push, never push to `main`/`master`.
 Report the PR URL, the test/lint results, and the review verdict. If a step
 fails (tests red, rebase conflict, `gh` error), stop and report precisely what
 failed so no work is lost. Do not merge or deploy.
-</content>

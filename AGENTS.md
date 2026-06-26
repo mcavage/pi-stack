@@ -10,13 +10,18 @@ read it before changing things, and keep it current as you learn.
 
 | path | what |
 |---|---|
-| `Dockerfile` | the image: DHI node base + LSP toolchains + chromium + gh + fd + curated pi packages + the baked harness |
+| `Dockerfile` | the image: DHI node base + LSP toolchains + chromium + gh + gws + fd + curated pi packages + the baked harness |
 | `pi-kit/spec.yaml` | the **sandbox kit** (kit-spec **v1**): image, entrypoint, multi-model proxy creds, network allowlist, `agentContext` |
 | `settings.json` | → `~/.pi/agent/settings.json` (theme, trust, `hideThinkingBlock`) |
 | `keybindings.json` | → `~/.pi/agent/keybindings.json` (emacs; model-cycle moved to **Alt+P**) |
-| `agents/*.md` | subagent role presets: `fanout` / `review` / `deep` |
-| `skills/<name>/SKILL.md` | Agent Skills: ship · code-review · investigate · brainstorm · spec · qa · design-review |
+| `mcp.json` | → `~/.pi/agent/mcp.json` (registers the sbx Cloud MCP Gateway: atlassian/notion/granola/linear/…; `lifecycle:lazy`) |
+| `capabilities.json` | → `~/.pi/agent/capabilities.json` (maps capabilities chat/docs/github/... → provider mcp/cli/http/none; swap to retarget every data skill at once). See the `capability-routing` skill |
+| `agents/*.md` | 17 subagent presets: orchestration (`fanout`/`review`/`deep`) + a role crew (architect, engineer, designer, qa-lead, security-lead, …) |
+| `skills/<name>/SKILL.md` | Agent Skills. The public image bakes ~35 generic skills (the `.dockerignore` allowlist); company-specific skills live in a private overlay kit and are excluded. Dev spine: ship · code-review · investigate · spec · qa · design-review · tdd · verify |
 | `extensions/*.ts` | local TypeScript extensions (`status.ts`, `timestamps.ts`) |
+| `services/host/` | **`pi-stack-host`** — the single compiled **Go** binary for everything that runs on the HOST. Subcommands: `gws-token` (:11441), `memory` (:11435), `slack`, `serve <services…>` (runs the ones named in `SERVICES`). `make serve` builds + runs it. Private overlay subcommands self-register via `init()` when present (see the open-core note below). |
+| `config/local.mk` | **the single stack config** (gitignored; `make install` seeds it from `config/local.mk.example`). Declares `SERVICES` (what `make serve` runs), `MCP` (what `make run` attaches + `make mcp-register` registers), and the Ollama model names. Every make target derives from it — no hand-passed flags. `config/overlay.mk` (also gitignored) adds private company-specific targets. |
+| `services/host/{slack,memory}.go` | the former `mcp/*` servers, now `pi-stack-host` subcommands. `slack` is a **stdio MCP server** registered with sbx (`make mcp-register`) and run by the MCP gateway — NOT in `mcp.json`, NOT in `make serve`. `memory` (JSON-RPC :11435, sqlite+FTS5+vectors via Ollama) is a plain host service backing the recall extension. None are baked into the image. |
 | `themes/*.json` | `dracula` (default), `pi-stack` |
 | `prompts/*.md` | prompt templates (`/name`) |
 | `docs/STACK-MAP.md` | capability map vs Claude Code / opencode / cagent (have / package / build) |
@@ -72,10 +77,61 @@ parallel work to subagents via the `Agent` tool (`subagent_type=fanout|review|de
 - **The DHI base is minimal:** no `useradd` (append to `/etc/passwd`), `/usr/local/bin` may not exist (`mkdir -p`), no `gzip`/`curl`/`fd`/`hostname` by default (apt-install, or bake the static binary like ruff/fd do).
 - **Stalled model streams:** pi has no client read timeout, so a dead SSE stream spins "working…" forever. `status.ts`'s watchdog auto-cancels a turn with no output for 3 min; otherwise `Esc`. Diagnose a hung sandbox with `ps` (idle CPU + no child process = network wait, not compute).
 - **Full-auto:** no permission prompts — the sandbox isolation is the safety boundary.
+- **MCP host servers go through the sbx gateway — read the runbook**
+  (docker/sandboxes `docs/plan/mcp-runbook.md`; needs `SBX_MCP_URL=https://gateway.docker.com`).
+  They are **stdio** subcommands of `pi-stack-host` (`slack`; plus overlay servers
+  like `bamboohr` when present). `sbx mcp
+  add` for a local stdio server takes only `--command` + `--args` (**no `--env`**),
+  and the command runs on the HOST as a daemon subprocess. So creds come from
+  1Password: the registered command is `op run --env-file=config/op-refs.env --
+  pi-stack-host <name>`, which resolves the op:// refs at spawn time. One file
+  (`config/op-refs.env`) is the single mechanism for every MCP credential; nothing
+  is stored in the registration or the VM. `make mcp-register` wires this.
+  **Registration ≠ attachment, and local stdio servers are NOT surfaced by dynamic
+  `mcp-find`** (only the remote catalog is) — and this `sbx` build has no
+  attach-to-running (`sbx mcp load` doesn't exist; the flag is `--mcp <name>`, not
+  `--static-mcp`). So a sandbox only gets a local stdio server (e.g. `slack`) if it
+  was **created** with `--mcp <name>`. `make run` does this automatically from the `MCP` list in
+  `config/local.mk` — the single config that also drives `serve`/`mcp-register`/
+  `doctor`/`pull-models`. Add a server = a tool table + handlers + `run<Name>()` using `mcpStdio`
+  (newline-delimited JSON — what the gateway speaks; tolerates Content-Length on
+  input). Transports live in `services/host/util.go`.
+  - **Do NOT** hand-bake `url`/`command` entries into `mcp.json` pointing at
+    `host.docker.internal` — that's a non-native bypass (and a `command` server hits
+    pi's stdio client, which speaks newline-delimited JSON). Register with `sbx mcp
+    add` instead. `mcp.json` keeps only the `gateway` entry.
+  - Plain host services that are NOT MCP (`gws-token`, `memory`, plus overlay
+    services like the snow proxy) are different: the sandbox reaches them directly
+    over `host.docker.internal` (kit allowlist) via a wrapper/extension, and they
+    DO run under `make serve`.
+- **HOST = Go, SANDBOX = TypeScript (hard convention).** Everything that runs on
+  the host is one compiled Go binary, `services/host/` → `pi-stack-host` (subcommands
+  per service). Everything that runs *inside* the sandbox (pi extensions in
+  `extensions/`, in-box MCP) is TypeScript. Rationale: a single static binary is
+  saner to ship, and — decisively — a Node/Python interpreter that listens on a
+  socket and **spawns a child process from network input is backdoor-shaped and
+  trips endpoint security / EDR**. A compiled Go binary doing the same work runs
+  unflagged. So when you add a host service,
+  add a subcommand to `pi-stack-host`, don't write another `node …/server.ts`.
+- **gws** follows the host-token pattern: the wrapper fetches a short-lived bearer
+  from the `gws-token` service (a `pi-stack-host` subcommand) and runs the real
+  binary in-sandbox. `gws-token` execs `gws auth export`, so it's a process-spawner
+  too — another reason it's Go.
+- **Private overlay (company-specific integrations).** Connectors that are
+  specific to one company — e.g. a Snowflake warehouse exec-proxy or a BambooHR
+  directory MCP — are NOT in the public repo. Their Go sources
+  (`services/host/{snowproxy,bamboohr}.go`), the `bin/snow` wrapper, the Makefile
+  targets (`config/overlay.mk`), and their `capabilities.json` routing are all
+  gitignored. The pattern: an overlay `*.go` file **self-registers** into
+  `pi-stack-host` via `init()` (populating `extraCommands` / `extraUsage` /
+  `extraServiceFactories` in `main.go`), so the binary builds and runs identically
+  with or without it. To add a company connector, drop a gitignored subcommand file
+  in `services/host/` that registers itself — never reference it from a committed
+  file.
 - **Vendored renderer patch (`scripts/patches/`).** pi-tui's `doRender()` jitters the input box + powerbar up/down while streaming (it doesn't re-anchor the viewport on a bottom-anchored buffer *shrink*). No extension/config fixes it, so the Dockerfile runs `apply-tui-bottom-pin.mjs` after the pi install to patch the installed `@earendil-works/pi-tui/dist/tui.js`. The script is **idempotent + non-fatal** (warns and leaves the file unpatched if a pi version moves the `// Find first and last changed lines` anchor). **On a pi version bump, re-verify it still applies** (`grep "Bottom-block pin" .../pi-tui/dist/tui.js`); if the warning fires, refresh `scripts/patches/tui-bottom-pin.block.txt`. Full root-cause + tests in `docs/upstream/tui-bottom-pin.md` (this is also the eventual upstream PR — gated behind their `lgtm` contribution process).
 
 ## Toolchain in the image
 
-node 25 · npm · git · **gh** (HTTPS token via proxy — use for PRs, not SSH) ·
-ripgrep · **fd** · ruff · clangd · pyright · typescript-language-server ·
+node 25 · npm · git · **gh** (HTTPS token via sbx proxy — use for PRs, not SSH) ·
+**gws** (host-token wrapper) · ripgrep · **fd** · ruff · clangd · pyright · typescript-language-server ·
 **chromium** + **agent-browser** (localhost QA) · python3 · build-essential.

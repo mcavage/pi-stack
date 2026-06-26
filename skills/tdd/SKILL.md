@@ -28,4 +28,3 @@ behavior.
 
 For a bug fix: write the test that reproduces the bug (red), fix it (green); it
 stays as the regression test.
-</content>

@@ -31,4 +31,3 @@ symptom disappear without an explanation is not a fix.
    Re-run the repro to confirm it's gone, and add a regression test (`tdd`).
 
 Report: the root cause, the fix (`path:line`), and how you verified it.
-</content>

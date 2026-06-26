@@ -142,7 +142,12 @@ export default function (pi: any) {
 				});
 				const hits = r?.hits ?? [];
 				const text = hits.length
-					? hits.map((h: any) => `• ${h.content}`).join("\n")
+					? hits
+							.map(
+								(h: any) =>
+									`• [${String(h.id).slice(0, 8)}] (${h.kind}/${h.durability}${h.project ? "/" + h.project : ""}) ${h.content}`,
+							)
+							.join("\n")
 					: "(nothing)";
 				ctx?.ui?.notify?.(text, "info");
 			}),
@@ -154,6 +159,41 @@ export default function (pi: any) {
 			safe(async () => {
 				const r = await rpc("remember", { content: String(args ?? "").trim(), source: "user" });
 				ctx?.ui?.notify?.(r?.reaffirmed ? "reaffirmed" : "remembered", "info");
+			}),
+	});
+
+	pi.registerCommand?.("forget", {
+		description: "Forget a memory. Pass an 8+ char id (from /recall) or a query to drop its top match.",
+		handler: async (args: any, ctx: any) =>
+			safe(async () => {
+				const arg = String(args ?? "").trim();
+				if (!arg) return ctx?.ui?.notify?.("usage: /forget <id|query>", "info");
+				// A bare hex-ish token is treated as an id; otherwise recall the top match.
+				let id = /^[0-9a-f-]{8,}$/i.test(arg) ? arg : null;
+				let content = arg;
+				if (!id) {
+					const r = await rpc("recall", { query: arg, limit: 1, project: currentProject(ctx) });
+					const hit = r?.hits?.[0];
+					if (!hit) return ctx?.ui?.notify?.("no match to forget", "info");
+					id = hit.id;
+					content = hit.content;
+				}
+				const r = await rpc("forget", { id });
+				ctx?.ui?.notify?.(r?.ok ? `forgot: ${content}` : "not found (use a full id from /recall)", "info");
+			}),
+	});
+
+	pi.registerCommand?.("learnings", {
+		description: "Show recurring captured learnings worth promoting into a skill or convention",
+		handler: async (args: any, ctx: any) =>
+			safe(async () => {
+				const min = Number(String(args ?? "").trim()) || 3;
+				const r = await rpc("promotable", { minFrequency: min });
+				const c = r?.candidates ?? [];
+				const text = c.length
+					? c.map((x: any) => `(${x.frequency}x) ${x.content}`).join("\n")
+					: "(nothing recurring yet)";
+				ctx?.ui?.notify?.(text, "info");
 			}),
 	});
 }

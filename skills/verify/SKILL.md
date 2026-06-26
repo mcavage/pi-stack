@@ -25,4 +25,3 @@ Before you claim any status:
 Red flags that you're about to claim without proof: the words "should",
 "probably", "seems"; feeling finished; being tired; "just this once". Run the
 command first.
-</content>

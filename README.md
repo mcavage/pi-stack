@@ -1,12 +1,13 @@
 # pi-stack
 
-My setup for running [pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)
-in a Docker [sbx](https://docs.docker.com/ai/sandboxes/) sandbox. Leverages multiple
-models to check each other (today Claude and GPT), plus the skills I use to actually do
-stuff, and defaults that work for me (Dracula, emacs, etc.).
+A coding agent that runs **full-auto** — no "allow this command?" prompts, ever —
+because it lives in a disposable Docker [sbx](https://docs.docker.com/ai/sandboxes/)
+sandbox that can't reach your host unless you let it. The VM is throwaway and
+isolated, so there's nothing to approve and nothing it can hurt.
 
-It runs full-auto. The VM is disposable and can't reach the host (unless you let it), so there
-is nothing to approve, ever.
+Two model vendors run live and check each other ([pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)
+with Claude + GPT today), plus the skills I actually use to ship. Personal defaults
+(Dracula, emacs keys) are just defaults — swap them.
 
 ## Try it
 
@@ -36,10 +37,52 @@ Skills (in `skills/`):
 - `spec`: write a short plan, then build against it
 - `qa` and `design-review`: drive a headless browser against a running app
 
-Plus pi-lens for inline type and lint errors (JS/TS, Python, C/C++), a browser,
-plan mode, MCP, and web search. Defaults: dracula, emacs keys, thinking
+Those are the highlights; the public image ships ~35 generic dev, writing, and
+harness skills in total (the exact set is the allowlist in `.dockerignore`).
+Company-specific overlay skills live in a separate private kit and aren't included.
+
+Plus pi-lens for inline type and lint errors (JS/TS, Python, C/C++), `gh`,
+`gws`, a browser, plan mode, MCP, and web search. Defaults: dracula, emacs keys, thinking
 collapsed, a status line, and a watchdog that cancels a stuck call instead of
 spinning on "working..." forever.
+
+## Optional integrations (data tools)
+
+Beyond the model keys, pi-stack can reach external data through a set of
+**optional** tools. They're independent — set up the ones you want, skip the rest.
+Skills ask for a *capability* (`chat`, `docs`, `github`, …), not a vendor, and
+degrade cleanly to web/files when a provider isn't wired (see `capabilities.json`
+and the `capability-routing` skill), so nothing breaks if a tool is absent.
+
+Credentials never enter the sandbox: tokens are injected by the sbx proxy or
+brokered by a small **host-side** service. One command starts the host services,
+another shows status:
+
+```bash
+make serve         # start the host HTTP services: memory, gws-token
+make pull-models   # pull the local Ollama models the memory loop needs (watcher + embed)
+make mcp-register  # register the stdio MCP servers (slack) with the sbx gateway
+make doctor        # per tool: is it set up? is its service running / registered? models pulled?
+```
+
+Registering a stdio MCP server does **not** put it in a sandbox — local stdio
+servers aren't surfaced by dynamic `mcp-find`, and there's no attach-to-running.
+You have to *start* the sandbox with them:
+
+```bash
+make run MCP="slack"   # == sbx run pi-stack --kit ./pi-kit --mcp slack .
+```
+
+| tool | capability | one-time setup | reaches the VM via |
+|---|---|---|---|
+| **gh** | `github` | `gh auth token \| sbx secret set -g github` | sbx proxy injects the token |
+| **gws** | `gworkspace` | `gws auth login` on the host | host token service (`:11441`) |
+| **slack** | `chat` | refs in `config/op-refs.env`, then `make mcp-register` | stdio MCP via the sbx gateway (`op run` pulls creds from 1Password) |
+| **memory** | — | `make pull-models` (a local [Ollama](https://ollama.com) + a watcher model for fact capture and an embed model for semantic recall; recall degrades to keyword-only and capture is skipped — loudly — without them) | host service (`:11435`) |
+| gateway catalog (atlassian, notion, granola, linear, …) | `issues` / `docs` / … | register with `sbx mcp add` | the sbx gateway; `make run MCP="<name>"` to eager-load |
+
+Company-specific connectors (a Snowflake warehouse proxy, a BambooHR directory,
+a CRM) live in a private overlay, not in this repo.
 
 ## Bring your own skills
 
@@ -69,6 +112,7 @@ To change the image, the baked-in skills, or the extensions:
 ```bash
 git clone https://github.com/mcavage/pi-stack
 cd pi-stack
+docker login dhi.io   # the base image is dhi.io/node (needs a DHI-entitled Docker account)
 make load      # build the image, load it into sbx
 make install   # put a `pi-stack` command on your PATH
 pi-stack       # run it anywhere (keys set as above)
