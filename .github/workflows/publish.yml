@@ -103,7 +103,11 @@ jobs:
         run: |
           tags="-t ${IMAGE}:latest"
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            tags="${tags} -t ${IMAGE}:${GITHUB_REF_NAME}"
+            # Strip the leading "v": a git tag v0.0.1 publishes the image as
+            # :0.0.1, matching the pin in pi-kit/spec.yaml + Makefile VERSION +
+            # package.json (which are semver, no "v"). Mismatch here = the README
+            # "Try it" pull 404s for everyone but the local builder.
+            tags="${tags} -t ${IMAGE}:${GITHUB_REF_NAME#v}"
           fi
           docker buildx imagetools create ${tags} \
             $(printf "${IMAGE}@sha256:%s " *)

@@ -6,10 +6,15 @@ description: "Multi-model pi coding agent on a Docker Hardened (DHI) Debian base
 
 sandbox:
   # Published image — consumers pull this by name (sbx auto-pulls it). For local
-  # dev, `make load` builds + tags + loads the image under this same name, so
-  # `make run` uses your local build instead of pulling. Change the namespace to
-  # match your Docker Hub handle (must match Makefile DOCKER_USER).
-  image: "docker.io/mcavage/pi-stack:latest"
+  # dev, `make load` builds + loads the image under this same name, so sbx uses
+  # your local build instead of pulling. Change the namespace to match your
+  # Docker Hub handle (must match Makefile DOCKER_USER).
+  #
+  # MUST be a pinned tag, never `:latest` — Docker re-pulls `:latest` on every
+  # run even when the image is already loaded, defeating `make load`. A pinned
+  # tag means "use the loaded build if present, else pull once." Keep in sync
+  # with VERSION in the Makefile and `version` in package.json.
+  image: "docker.io/mcavage/pi-stack:0.0.1"
   aiFilename: AGENTS.md
   entrypoint:
     # --session-dir persists sessions on the host-mounted workspace so they
@@ -32,11 +37,16 @@ network:
     console.anthropic.com: anthropic
     claude.ai: anthropic
     api.openai.com: openai
+    api.github.com: github
+    uploads.github.com: github
   serviceAuth:
     anthropic:
       headerName: x-api-key
       valueFormat: "%s"
     openai:
+      headerName: Authorization
+      valueFormat: "Bearer %s"
+    github:
       headerName: Authorization
       valueFormat: "Bearer %s"
   allowedDomains:
@@ -56,15 +66,52 @@ network:
     - mcp.exa.ai
     - generativelanguage.googleapis.com
     - api.perplexity.ai
+    # Google Workspace CLI runtime endpoints. The gws wrapper obtains a bearer
+    # from a host service, then gws calls these APIs directly from the sandbox.
+    - www.googleapis.com
+    - gmail.googleapis.com
+    - calendar-pa.clients6.google.com
+    - drive.googleapis.com
+    - docs.googleapis.com
+    - sheets.googleapis.com
+    - people.googleapis.com
+    - oauth2.googleapis.com
+    # Host gws token service (optional; without it the gws wrapper degrades to
+    # the real binary unauthenticated).
+    - host.docker.internal:11441
+    - localhost:11441
+    # Host memory service (the recall extension calls it over JSON-RPC). The store
+    # and its embeddings live on the host; the sandbox only needs this URL. Host-
+    # internal traffic bypasses the proxy MITM (see NO_PROXY in the Dockerfile);
+    # recall is skipped if the service isn't running. Same pattern the private overlay kit
+    # uses to reach host services on host.docker.internal.
+    - host.docker.internal:11435
+    - localhost:11435
+    # Optional overlay host service on :11442 (e.g. a host-side CLI exec-proxy a
+    # private overlay wires up). Harmless when nothing is listening; an in-sandbox
+    # wrapper forwards argv to it so credentials/SSO stay on the host.
+    - host.docker.internal:11442
+    - localhost:11442
+    # Note: local stdio MCP servers (e.g. slack) are NOT here. They're registered
+    # with sbx (`sbx mcp add … --command pi-stack-host --args slack`), run by the
+    # MCP gateway and reached through it — not over host.docker.internal — so they
+    # need no allowlist entry.
 
 credentials:
   sources:
     anthropic:
       env:
         - ANTHROPIC_API_KEY
+    github:
+      env:
+        - GH_TOKEN
+    google:
+      env:
+        - GEMINI_API_KEY
     openai:
       env:
         - OPENAI_API_KEY
+
 
 environment:
   variables:
@@ -73,6 +120,8 @@ environment:
     NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/proxy-ca.crt
   proxyManaged:
     - ANTHROPIC_API_KEY
+    - GEMINI_API_KEY
+    - GH_TOKEN
     - OPENAI_API_KEY
 
 # The sandbox proxy terminates TLS and presents its own CA (delivered at runtime
@@ -86,28 +135,49 @@ commands:
 
 agentContext: |
   # pi-stack
-  You are pi, running inside the **pi-stack** sandbox — a Docker Hardened (DHI)
-  Debian base, isolated by Docker Sandboxes. The environment is disposable:
-  work directly, commit often.
+  You are pi, running inside the pi-stack sandbox: a Docker Hardened (DHI) Debian
+  base, isolated by Docker Sandboxes. The environment is disposable. Work
+  directly and commit often.
+
+  ## Memory (automatic)
+  A host memory service recalls relevant facts into your context before every
+  turn, and quietly captures durable facts and corrections after. You never call
+  it. To see or steer it: /recall, /remember, /forget, /learnings. If recall is
+  empty, the user needs to run `make memory-serve` on the host.
 
   ## Multi-model
-  Both ANTHROPIC and OPENAI keys are injected by the host proxy and never stored
-  in this VM. Switch models with `/model` or `--model openai/<id>`. Prefer a
-  cheap/fast model for bulk fan-out and a stronger model for synthesis & review.
+  ANTHROPIC, OPENAI, GEMINI keys are all injected by the host proxy, never stored in
+  this VM. Switch models with /model or --model. Additionally Ollama is available to
+  you at http://host.docker.internal:11434. Use a cheap, fast model like haiku or
+  gemma for bulk fan-out and a stronger one like Opus for synthesis and review.
 
-  ## Subagents (multi-model fan-out)
-  The `Agent` tool + `/agents` (@tintinweb/pi-subagents) run subagents in
-  parallel. Three role presets live in ~/.pi/agent/agents:
-    - fanout  — cheap/fast (haiku), read-only; spawn many for breadth.
-    - review  — adversarial 2nd opinion on a DIFFERENT vendor (gpt) than main.
-    - deep    — strongest (opus) for one hard sub-problem.
-  Fan a task across roles, then synthesize. Use review before committing.
+  ## Subagents and the roster
+  The Agent tool runs subagents in parallel from presets in ~/.pi/agent/agents:
+    - fanout (haiku, read-only): spawn many for breadth.
+    - deep (opus): one genuinely hard sub-problem.
+    - review (cross-vendor): an adversarial second opinion before you ship.
+    - specialists: architect, engineer, designer, product-manager, qa-lead,
+      security-lead, sre-lead, devrel, dx-consultant, legal, finance-analyst,
+      growth-marketing, ux-copywriter, enterprise-admin.
+  Fan a task across the right roles, then synthesize. Use review before shipping.
+
+  ## Skills
+  Tight, opinionated workflows you run by name: investigate, spec, code-review,
+  ship, verify, tdd, brainstorm, challenge, qa, design-review, and many more. They
+  are forcing functions, not manuals. Auto-loaded when relevant.
 
   ## Installed harness
-  plan mode (pi-plan), pi-mcp-adapter (wire servers per-project),
-  todo list, pi-simplify, pi-web-access, pi-lens (inline LSP diagnostics for
-  JS/TS, Python, C/C++, YAML, JSON), powerbar statusline + usage HUD.
+  plan mode (pi-plan), pi-mcp-adapter, todo list, pi-simplify, pi-web-access,
+  pi-lens (inline LSP diagnostics), powerbar statusline + usage HUD.
+
+  ## CLIs and MCP
+  `gh` and `gws` are installed. GitHub auth is routed through sbx credentials.
+  `gws` uses a host token service for short-lived Google Workspace bearers. Slack
+  (the `chat` capability) is a host-side stdio MCP server run by the MCP gateway;
+  its token stays on the host. Run the host services with `make serve`. Use sbx
+  Cloud MCP Gateway profiles for catalog servers (notion, atlassian, granola, …).
 
   ## Posture
-  Full-auto: no permission prompts — the sandbox isolation is the safety
-  boundary. Work directly, commit often.
+  Full-auto: no permission prompts. The sandbox isolation is the safety boundary.
+  Write in the user's voice (see the anti-slop and write-like-mark skills): no
+  em-dashes, no AI slop, direct and concrete.

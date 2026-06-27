@@ -4,3 +4,87 @@ pi-stack.tar
 node_modules/
 .pi-sessions/
 .pi-lens/
+
+
+# 1Password secret references — user-specific (vault/item names); keep local
+config/op-refs.env
+
+
+# all build + sandbox artifacts land here (single ignored dir)
+out/
+
+# local owner-specific Makefile overrides (your real connector config, etc.)
+config/local.mk
+
+# --- Open-core boundary: skills (MUST mirror .dockerignore) ---------------------
+# DEFAULT-DENY so `git add -A` can never stage a company/overlay skill (one that
+# carries proprietary schema or figures) into the public repo. Only the generic
+# CORE skills below are tracked; everything else stays local.
+# Keep this list in sync with the !skills/... allowlist in .dockerignore.
+skills/*
+!skills/anti-slop/
+!skills/api-conventions/
+!skills/autoplan/
+!skills/brainstorm/
+!skills/capability-routing/
+!skills/challenge/
+!skills/code-review/
+!skills/competitive-analysis/
+!skills/conventions/
+!skills/delegation-guide/
+!skills/design-review/
+!skills/design-system/
+!skills/docs-standards/
+!skills/document-release/
+!skills/git-conventions/
+!skills/guard/
+!skills/health/
+!skills/ingest/
+!skills/investigate/
+!skills/microcopy-patterns/
+!skills/promote-learnings/
+!skills/prototype-webapp/
+!skills/qa/
+!skills/review-gate/
+!skills/self-audit/
+!skills/setup-user/
+!skills/ship/
+!skills/spec/
+!skills/tdd/
+!skills/verify/
+!skills/wf-engineering/
+!skills/wf-product/
+!skills/wf-prototype/
+!skills/write-like-mark/
+!skills/write-one-pager/
+
+# --- Open-core boundary: agents (MUST mirror .dockerignore) ---------------------
+# DEFAULT-DENY so git add -A can't stage a future company-specific persona.
+agents/*
+!agents/architect.md
+!agents/deep.md
+!agents/designer.md
+!agents/devrel.md
+!agents/dx-consultant.md
+!agents/engineer.md
+!agents/enterprise-admin.md
+!agents/fanout.md
+!agents/finance-analyst.md
+!agents/growth-marketing.md
+!agents/legal.md
+!agents/product-manager.md
+!agents/qa-lead.md
+!agents/review.md
+!agents/security-lead.md
+!agents/sre-lead.md
+!agents/ux-copywriter.md
+
+# --- Private overlay (see docs/OVERLAY.md) ------------------------------------
+# The overlay is its OWN peer repo (default ../pi-stack-work), not in this tree.
+# `make serve` symlinks its host plugins into services/host/ as overlay_*.go so they
+# compile into pi-stack-host; the symlinks are gitignored and the public binary
+# builds identically without them.
+services/host/overlay_*.go
+
+# Private open-core marker list (codenames/account ids) — see the .example
+config/open-core-markers.txt

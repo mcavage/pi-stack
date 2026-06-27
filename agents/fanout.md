@@ -1,5 +1,5 @@
 ---
-description: Cheap, fast breadth worker for parallel fan-out — give it one slice of a larger search/analysis job. Spawn many at once.
+description: Cheap, fast breadth worker for parallel fan-out. Give it one slice of a larger search/analysis job. Spawn many at once.
 tools: read, grep, find, ls, bash
 model: anthropic/claude-haiku-4-5
 thinking: low

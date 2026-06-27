@@ -11,6 +11,10 @@ export default function (pi: any) {
 	let turnStart: number | null = null;
 	let toolName: string | null = null;
 	let toolStart = 0;
+	// When the CURRENT phase began (awaiting-model after turn_start / tool_end, or
+	// running-tool after tool_start). The live timer counts from here so it reads
+	// "how long in THIS phase", like Claude Code's elapsed counter — not total turn.
+	let phaseStart = Date.now();
 	let lastActivity = Date.now();
 	let ui: any = null;
 	let ticker: any = null;
@@ -40,11 +44,16 @@ export default function (pi: any) {
 		return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 	};
 
-	// The visible working line is EVENT-DRIVEN (changes only when the tool/phase
-	// changes or a stall warning appears), NOT refreshed every second. A live
-	// per-second elapsed counter repaints the bottom UI block every tick, which
-	// reflows/bounces the powerbar while working. Live elapsed is still available
-	// on demand via `/status`. (Was: `awaiting model · 0:01` updated each second.)
+	// The visible working line carries a LIVE per-second elapsed timer (Claude
+	// Code style) — `awaiting model · 0:07` ticking up so you can see how long the
+	// model/tool has been running. This was previously static for fear of bouncing
+	// the powerbar, but the timer is a constant-HEIGHT single-line repaint (only the
+	// digits change), and the vendored tui-bottom-pin patch now re-anchors the
+	// bottom block on buffer shrink — the actual jitter source — so a same-height
+	// repaint each second is safe. Opt out with PI_STATUS_LIVE_TIMER=0.
+	const LIVE_TIMER = !(
+		typeof process !== "undefined" && process.env?.PI_STATUS_LIVE_TIMER === "0"
+	);
 	let lastShown: string | null = null;
 	const setMsg = (text: string) => {
 		if (!ui || text === lastShown) return;
@@ -56,7 +65,9 @@ export default function (pi: any) {
 		// long appended string can wrap to 2 lines on a narrow terminal, which would
 		// flap the loader's height by a line — the one jitter an extension can cause.
 		if (idle > STALL_WARN_MS) return `⚠ stalled ${fmt(idle)} · Esc`;
-		return toolName ? `running ${toolName}` : "awaiting model";
+		const label = toolName ? `running ${toolName}` : "awaiting model";
+		if (!LIVE_TIMER) return label;
+		return `${label} · ${fmt(Date.now() - phaseStart)}`;
 	};
 
 	// Watchdog only: runs every second to DETECT stalls, but only touches the UI
@@ -67,9 +78,10 @@ export default function (pi: any) {
 			if (!ui || turnStart == null) return;
 			const now = Date.now();
 			const idle = now - lastActivity;
-			// Refresh the stall-warning text only while stalled (no churn when healthy:
-			// renderMsg is stable and setMsg dedupes).
-			if (idle > STALL_WARN_MS) setMsg(renderMsg(idle));
+			// Repaint the working line every tick so the live timer advances. renderMsg
+			// is constant-height and setMsg dedupes identical text, so when LIVE_TIMER
+			// is off this collapses back to event-driven (only the stall crossing churns).
+			setMsg(renderMsg(idle));
 
 			// Watchdog: auto-cancel a stall. Model streams and fast network tools get
 			// finite thresholds; long tools (Agent/subagents, bash, builds) get
@@ -110,6 +122,7 @@ export default function (pi: any) {
 		ui = ctx?.ui ?? ui;
 		ctxRef = ctx ?? ctxRef;
 		turnStart = Date.now();
+		phaseStart = Date.now();
 		lastActivity = Date.now();
 		toolName = null;
 		aborted = false;
@@ -154,6 +167,7 @@ export default function (pi: any) {
 	on("tool_execution_start", (e) => {
 		toolName = e?.toolName ?? e?.name ?? "tool";
 		toolStart = Date.now();
+		phaseStart = Date.now();
 		lastActivity = Date.now();
 		setMsg(renderMsg(0));
 	});
@@ -162,6 +176,7 @@ export default function (pi: any) {
 	});
 	on("tool_execution_end", () => {
 		toolName = null;
+		phaseStart = Date.now();
 		lastActivity = Date.now();
 		setMsg(renderMsg(0));
 	});
