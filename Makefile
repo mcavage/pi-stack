@@ -9,11 +9,13 @@ VERSION     ?= 0.0.1
 IMAGE       ?= docker.io/$(DOCKER_USER)/pi-stack:$(VERSION)
 LATEST      ?= docker.io/$(DOCKER_USER)/pi-stack:latest
 KIT         ?= ./pi-kit
-# Private overlay mixin kit (gitignored). Stacked automatically by `make run` when
-# present, so the company skills + full capabilities.json + snow wrapper layer on
-# top of the public image. See docs/OVERLAY.md.
-OVERLAY_KIT ?= ./pi-kit-work
-OVERLAY_KIT_FLAG = $(if $(wildcard $(OVERLAY_KIT)/spec.yaml),--kit $(OVERLAY_KIT),)
+# Private overlay — its OWN peer repo (not in this tree). It contributes two halves
+# (see docs/OVERLAY.md): kit/ (a mixin kit: company skills, full capabilities.json,
+# in-sandbox wrappers — `make run` stacks it) and host/overlay_*.go (host plugins —
+# `make serve` symlinks them into services/host/ so they compile into the binary).
+# Set OVERLAY in config/local.mk if your peer repo lives elsewhere.
+OVERLAY     ?= ../pi-stack-work
+OVERLAY_KIT_FLAG = $(if $(wildcard $(OVERLAY)/kit/spec.yaml),--kit $(OVERLAY)/kit,)
 # MCP enablement for `make run`. Set this in config/local.mk (written by
 # `make install`) so the stack is configured once, not by hand each run. Listed
 # servers are auto-attached (`--mcp <name>`) AND are what `make mcp-register`
@@ -41,7 +43,7 @@ OP_BIN  := $(shell command -v op 2>/dev/null)
 # defaults stay generic. config/overlay.mk (also gitignored) adds private,
 # company-specific integrations (Snowflake/BambooHR targets, vars, extra MCP).
 -include config/local.mk
--include pi-kit-work/overlay.mk
+-include $(OVERLAY)/overlay.mk
 
 # Local-model deps for the self-learning memory (host Ollama). The watcher model
 # turns your messages into durable facts (capture); the embed model powers
@@ -56,7 +58,19 @@ MEMORY_EMBED_MODEL   ?= nomic-embed-text
 # config/local.mk (written by `make install`) so you never pass flags by hand.
 SERVICES ?= memory gws
 
-.PHONY: help build load publish validate inspect run run-no-mcp serve doctor memory-serve gws-token-serve mcp-register pull-models secrets pack install clean
+.PHONY: help build load publish validate inspect run run-no-mcp serve doctor memory-serve gws-token-serve mcp-register pull-models secrets pack install clean link-overlay
+
+# Symlink the private overlay's host plugins ($(OVERLAY)/host/overlay_*.go) into
+# services/host/ so they compile into pi-stack-host and self-register. No-op in a
+# public clone (the overlay peer repo isn't there) — the binary builds clean.
+# The symlinks are gitignored (services/host/overlay_*.go).
+link-overlay:
+	@rm -f services/host/overlay_*.go
+	@if [ -d "$(OVERLAY)/host" ]; then \
+		for f in $(OVERLAY)/host/overlay_*.go; do \
+			[ -e "$$f" ] && ln -sf "$$(cd "$$(dirname "$$f")" && pwd)/$$(basename "$$f")" services/host/; \
+		done; \
+	fi
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -98,13 +112,13 @@ run: ## Launch a pi-stack sandbox. Stacks the private overlay kit if present, at
 run-no-mcp: ## Launch without sbx Cloud MCP Gateway, for debugging MCP setup failures
 	env -u SBX_MCP_URL sbx run pi-stack --kit $(KIT) .
 
-memory-serve: ## Build + run just the memory service (JSON-RPC :11435) from pi-stack-host
+memory-serve: link-overlay ## Build + run just the memory service (JSON-RPC :11435) from pi-stack-host
 	(cd services/host && go build -o $(CURDIR)/out/pi-stack-host .) && exec ./out/pi-stack-host memory
 
-gws-token-serve: ## Build + run just the gws bearer token service (:11441) from pi-stack-host
+gws-token-serve: link-overlay ## Build + run just the gws bearer token service (:11441) from pi-stack-host
 	(cd services/host && go build -o $(CURDIR)/out/pi-stack-host .) && exec ./out/pi-stack-host gws-token
 
-mcp-register: ## Register the local stdio MCP servers you use (the ones in MCP, config/local.mk) with sbx. The gateway runs each as `op run --env-file=config/op-refs.env -- pi-stack-host <name>`, so creds come from 1Password at spawn (nothing stored in the registration). Needs SBX_MCP_URL + op + config/op-refs.env.
+mcp-register: link-overlay ## Register the local stdio MCP servers you use (the ones in MCP, config/local.mk) with sbx. The gateway runs each as `op run --env-file=config/op-refs.env -- pi-stack-host <name>`, so creds come from 1Password at spawn (nothing stored in the registration). Needs SBX_MCP_URL + op + config/op-refs.env.
 	@command -v sbx >/dev/null 2>&1 || { echo "ERROR: sbx not found"; exit 1; }
 	@[ -n "$(strip $(REGISTER))" ] || { echo "Nothing to register: no local stdio servers ($(LOCAL_STDIO_MCP)) are in MCP. Set MCP in config/local.mk."; exit 0; }
 	@[ -n "$$SBX_MCP_URL" ] || { echo "ERROR: SBX_MCP_URL is unset — MCP is not enabled, so 'sbx mcp add' will fail."; \
@@ -127,7 +141,7 @@ mcp-register: ## Register the local stdio MCP servers you use (the ones in MCP, 
 	@echo "        for a running sandbox — so re-run with --mcp to pick them up."
 	@echo "Note: each server resolves its creds from config/op-refs.env via op run when the gateway spawns it — make sure those refs are filled + valid."
 
-serve: ## Start the host services named in SERVICES (config/local.mk): memory :11435, gws :11441. MCP servers (slack) are run by the sbx gateway — see `make mcp-register`. Ctrl-C stops all.
+serve: link-overlay ## Start the host services named in SERVICES (config/local.mk): memory :11435, gws :11441. MCP servers (slack) are run by the sbx gateway — see `make mcp-register`. Ctrl-C stops all.
 	@echo "Host services [$(SERVICES)] — sandboxes reach these on host.docker.internal. Ctrl-C stops all."
 	@(cd services/host && go build -o $(CURDIR)/out/pi-stack-host .) || { echo "go build failed (pi-stack-host)"; exit 1; }
 	@exec env SNOW_CONN=$(SNOW_CONN) MEMORY_WATCHER_MODEL=$(MEMORY_WATCHER_MODEL) MEMORY_EMBED_MODEL=$(MEMORY_EMBED_MODEL) out/pi-stack-host serve $(SERVICES)

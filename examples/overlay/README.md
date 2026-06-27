@@ -3,27 +3,35 @@
 A minimal, copyable scaffold for a pi-stack private overlay. See
 [`docs/OVERLAY.md`](../../docs/OVERLAY.md) for the full explanation.
 
-To make your own:
+An overlay is its own **peer repo** (a sibling of pi-stack), kept private. To make
+yours:
 
 ```bash
-cp -r examples/overlay ./pi-kit-work     # pi-kit-work/ is gitignored
-# edit pi-kit-work/spec.yaml, add your skills under files/.../skills/,
-# fill in files/.../capabilities.json, and (for host services) copy
-# pi-kit-work/host/overlay_*.go into services/host/.
-make run                                 # stacks ./pi-kit-work automatically
+cp -r examples/overlay ../my-overlay      # a sibling dir, NOT inside pi-stack
+cd ../my-overlay && git init              # your own private repo
+# edit kit/spec.yaml, add skills under kit/files/.../skills/, fill in
+# kit/files/.../capabilities.json, and put host plugins in host/overlay_*.go
 ```
+
+Then point pi-stack at it once, in `pi-stack/config/local.mk`:
+
+```makefile
+OVERLAY = ../my-overlay
+```
+
+`make run` stacks `kit/` automatically; `make serve` symlinks `host/overlay_*.go`
+into pi-stack's `services/host/`.
 
 Layout:
 
 ```
-overlay/
-  spec.yaml                                       # kind: mixin
-  overlay.mk                                      # private make targets
-  files/
-    home/agent/.pi/agent/
-      capabilities.json                           # full routing (overwrites public)
-      skills/example-data-skill/SKILL.md          # a private skill
-    usr/local/bin/example-wrapper                 # an in-sandbox wrapper (sample)
+my-overlay/
+  kit/                                              # sandbox half — mixin kit
+    spec.yaml                                       # kind: mixin
+    files/home/agent/.pi/agent/
+      capabilities.json                             # full routing (overwrites public)
+      skills/example-data-skill/SKILL.md            # a private skill
   host/
-    overlay_example.go                            # a host plugin (copy into services/host/)
+    overlay_example.go                              # a host plugin (package main)
+  overlay.mk                                        # private make targets
 ```

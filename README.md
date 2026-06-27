@@ -5,9 +5,11 @@ because it lives in a disposable Docker [sbx](https://docs.docker.com/ai/sandbox
 sandbox that can't reach your host unless you let it. The VM is throwaway and
 isolated, so there's nothing to approve and nothing it can hurt.
 
-Two model vendors run live and check each other ([pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)
-with Claude + GPT today), plus the skills I actually use to ship. Personal defaults
-(Dracula, emacs keys) are just defaults — swap them.
+Two model vendors run live ([pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)
+with Claude + GPT today): `/model` switches, and the review step deliberately runs a
+second opinion on the *other* vendor — a Claude change gets argued against by GPT,
+and vice-versa. Plus the skills I actually use to ship. Personal defaults (Dracula,
+emacs keys) are just defaults — swap them.
 
 ## Try it
 
@@ -27,7 +29,10 @@ of the VM. The last line pulls the image and starts pi in the current directory.
 
 Two model vendors, live at the same time. `/model` switches, `Alt+P` cycles.
 Subagent presets run on different models: a cheap one for breadth, the other
-vendor for a second opinion, the strongest one for the hard part.
+vendor for a second opinion, the strongest one for the hard part. There's also a
+roster of role personas to delegate to (`architect`, `security-lead`, `sre-lead`,
+`qa-lead`, `ux-copywriter`, … 17 in all) — pull in the lens a change actually
+needs, not just a generic reviewer.
 
 Skills (in `skills/`):
 

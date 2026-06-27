@@ -46,22 +46,30 @@ done
 # Private overlay must never be tracked — host plugins self-register into the
 # binary when present, and the whole mixin kit is private. The public tree builds
 # and ships without either.
-overlay_tracked="$(git ls-files 'services/host/overlay_*.go' 'pi-kit-work/*' pi-kit-work 2>/dev/null)"
+overlay_tracked="$(git ls-files 'services/host/overlay_*.go' 2>/dev/null)"
 if [ -n "$overlay_tracked" ]; then
   note "private overlay file(s) are tracked (must stay gitignored):"
   echo "$overlay_tracked" | sed 's/^/    /'
 fi
 
-# Belt-and-suspenders: no internal-only marker may appear in any tracked file.
+# Belt-and-suspenders: no internal-only marker (your private codenames, account
+# IDs, vault paths) may appear in any tracked file. The markers themselves are
+# sensitive, so they live in a GITIGNORED file (config/open-core-markers.txt, one
+# regex per line) — not in this public script. Absent in a public clone, which has
+# no internal names to protect anyway, so the check simply skips.
 # NOTE: capture the output and test it — do NOT pipe into `grep -q` under
-# `set -o pipefail`: xargs exits 123 when any batch finds no match, which
-# pipefail propagates, making the `if` read "clean" even when markers are present.
-markers='UH65063|gm-agent-team|gm-team|hivemind|CANON\.GOLD|op://Employee|CrowdStrike'
-# Exclude this script from the scan — it necessarily contains the marker list itself.
-marker_hits="$(git ls-files -z | grep -zvF 'scripts/check-open-core.sh' | xargs -0 grep -nIE "$markers" 2>/dev/null || true)"
-if [ -n "$marker_hits" ]; then
-  note "internal marker(s) found in tracked file(s):"
-  echo "$marker_hits" | sed 's/^/    /'
+# `set -o pipefail`: xargs exits 123 when any batch finds no match, which pipefail
+# propagates, making the `if` read "clean" even when markers are present.
+marker_file="config/open-core-markers.txt"
+if [ -f "$marker_file" ]; then
+  markers="$(grep -vE '^[[:space:]]*(#|$)' "$marker_file" | paste -sd'|' -)"
+  if [ -n "$markers" ]; then
+    marker_hits="$(git ls-files -z | xargs -0 grep -nIE "$markers" 2>/dev/null || true)"
+    if [ -n "$marker_hits" ]; then
+      note "internal marker(s) found in tracked file(s):"
+      echo "$marker_hits" | sed 's/^/    /'
+    fi
+  fi
 fi
 
 if [ "$fail" -eq 0 ]; then

@@ -20,11 +20,11 @@ read it before changing things, and keep it current as you learn.
 | `skills/<name>/SKILL.md` | Agent Skills. The public image bakes ~35 generic skills (the `.dockerignore` allowlist); company-specific skills live in a private overlay kit and are excluded. Dev spine: ship · code-review · investigate · spec · qa · design-review · tdd · verify |
 | `extensions/*.ts` | local TypeScript extensions (`status.ts`, `timestamps.ts`) |
 | `services/host/` | **`pi-stack-host`** — the single compiled **Go** binary for everything that runs on the HOST. Subcommands: `gws-token` (:11441), `memory` (:11435), `slack`, `serve <services…>` (runs the ones named in `SERVICES`). `make serve` builds + runs it. Private overlay subcommands self-register via `init()` when present (see the open-core note below). |
-| `config/local.mk` | **the single stack config** (gitignored; `make install` seeds it from `config/local.mk.example`). Declares `SERVICES` (what `make serve` runs), `MCP` (what `make run` attaches + `make mcp-register` registers), and the Ollama model names. Every make target derives from it — no hand-passed flags. `config/overlay.mk` (also gitignored) adds private company-specific targets. |
+| `config/local.mk` | **the single stack config** (gitignored; `make install` seeds it from `config/local.mk.example`). Declares `SERVICES` (what `make serve` runs), `MCP` (what `make run` attaches + `make mcp-register` registers), and the Ollama model names. Every make target derives from it — no hand-passed flags. The overlay peer repo's `overlay.mk` adds private company-specific targets. |
 | `services/host/{slack,memory}.go` | the former `mcp/*` servers, now `pi-stack-host` subcommands. `slack` is a **stdio MCP server** registered with sbx (`make mcp-register`) and run by the MCP gateway — NOT in `mcp.json`, NOT in `make serve`. `memory` (JSON-RPC :11435, sqlite+FTS5+vectors via Ollama) is a plain host service backing the recall extension. None are baked into the image. |
 | `themes/*.json` | `dracula` (default), `pi-stack` |
 | `prompts/*.md` | prompt templates (`/name`) |
-| `docs/STACK-MAP.md` | capability map vs Claude Code / opencode / cagent (have / package / build) |
+| `docs/OVERLAY.md` | how to build a private company overlay (peer repo: mixin kit + host plugins) |
 
 ## Build → load → run (read this before iterating)
 
@@ -118,16 +118,18 @@ parallel work to subagents via the `Agent` tool (`subagent_type=fanout|review|de
   binary in-sandbox. `gws-token` execs `gws auth export`, so it's a process-spawner
   too — another reason it's Go.
 - **Private overlay (company-specific integrations).** Open-core boundary: nothing
-  company-specific is in the public repo. The overlay has two halves (full guide in
+  company-specific is in the public repo. The overlay is its OWN **peer repo**
+  (`OVERLAY`, default `../pi-stack-work`), with two halves (full guide in
   **`docs/OVERLAY.md`**, copyable scaffold in `examples/overlay/`):
-  - **Sandbox half = a mixin kit** at `./pi-kit-work` (gitignored): private skills,
-    the full `capabilities.json`, and in-sandbox wrappers (e.g. `snow`) under
-    `files/`. `make run` stacks it automatically (`OVERLAY_KIT`). `overlay.mk` there
-    holds private make targets and is `-include`d.
-  - **Host half = `services/host/overlay_*.go` plugins** (gitignored): a file that
-    **self-registers** into `pi-stack-host` via `init()` (populating `extraCommands`
-    / `extraUsage` / `extraServiceFactories` in `main.go`), so the binary builds and
-    runs identically with or without it. Never reference an overlay file from a
+  - **Sandbox half = a mixin kit** at `$(OVERLAY)/kit`: private skills, the full
+    `capabilities.json`, and in-sandbox wrappers (e.g. `snow`) under `files/`. `make
+    run` stacks it automatically when present. `$(OVERLAY)/overlay.mk` holds private
+    make targets and is `-include`d.
+  - **Host half = `$(OVERLAY)/host/overlay_*.go` plugins.** `make serve` (via
+    `link-overlay`) **symlinks** them into `services/host/` (gitignored there) so they
+    compile into `pi-stack-host` and **self-register** via `init()` (populating
+    `extraCommands` / `extraUsage` / `extraServiceFactories` in `main.go`). The binary
+    builds identically with or without them. Never reference an overlay file from a
     committed one — the public tree has none. `scripts/check-open-core.sh` (CI) fails
     if any overlay file or internal marker is ever tracked.
 - **Vendored renderer patch (`scripts/patches/`).** pi-tui's `doRender()` jitters the input box + powerbar up/down while streaming (it doesn't re-anchor the viewport on a bottom-anchored buffer *shrink*). No extension/config fixes it, so the Dockerfile runs `apply-tui-bottom-pin.mjs` after the pi install to patch the installed `@earendil-works/pi-tui/dist/tui.js`. The script is **idempotent + non-fatal** (warns and leaves the file unpatched if a pi version moves the `// Find first and last changed lines` anchor). **On a pi version bump, re-verify it still applies** (`grep "Bottom-block pin" .../pi-tui/dist/tui.js`); if the warning fires, refresh `scripts/patches/tui-bottom-pin.block.txt`. Full root-cause + tests in `docs/upstream/tui-bottom-pin.md` (this is also the eventual upstream PR — gated behind their `lgtm` contribution process).

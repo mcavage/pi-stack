@@ -1,0 +1,8 @@
+# Copy to config/open-core-markers.txt (gitignored) and add YOUR internal markers
+# (regex, one per line). The open-core guard (scripts/check-open-core.sh, run in CI)
+# fails if any appears in a tracked file — a safety net against leaking private
+# codenames, account IDs, or vault paths. Lines starting with # are ignored.
+#
+# YOUR_ACCOUNT_LOCATOR
+# your-internal-codename
+# op://YourVault

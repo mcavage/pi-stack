@@ -13,13 +13,13 @@ config/op-refs.env
 # all build + sandbox artifacts land here (single ignored dir)
 out/
 
-# local owner-specific Makefile overrides (real Snowflake account/conn, etc.)
+# local owner-specific Makefile overrides (your real connector config, etc.)
 config/local.mk
 
 # --- Open-core boundary: skills (MUST mirror .dockerignore) ---------------------
-# DEFAULT-DENY so `git add -A` can never stage a company/overlay skill (e.g.
-# skills/snowflake with internal schema + ARR figures) into the public repo.
-# Only the generic CORE skills below are tracked; everything else stays local.
+# DEFAULT-DENY so `git add -A` can never stage a company/overlay skill (one that
+# carries proprietary schema or figures) into the public repo. Only the generic
+# CORE skills below are tracked; everything else stays local.
 # Keep this list in sync with the !skills/... allowlist in .dockerignore.
 skills/*
 !skills/anti-slop/
@@ -80,10 +80,11 @@ agents/*
 !agents/ux-copywriter.md
 
 # --- Private overlay (see docs/OVERLAY.md) ------------------------------------
-# Host-side plugins: any services/host/overlay_*.go self-registers into
-# pi-stack-host via init() when present, and is kept out of git. The public binary
-# builds and runs identically without them.
+# The overlay is its OWN peer repo (default ../pi-stack-work), not in this tree.
+# `make serve` symlinks its host plugins into services/host/ as overlay_*.go so they
+# compile into pi-stack-host; the symlinks are gitignored and the public binary
+# builds identically without them.
 services/host/overlay_*.go
-# The private mixin kit — company skills, full capabilities.json, the snow wrapper,
-# and overlay make targets — lives here, entirely gitignored.
-pi-kit-work/
+
+# Private open-core marker list (codenames/account ids) — see the .example
+config/open-core-markers.txt

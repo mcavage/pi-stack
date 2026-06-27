@@ -2,69 +2,77 @@
 
 pi-stack is open-core: the public repo and image ship a generic coding stack, and
 anything company-specific (proprietary skills, a CRM/warehouse/HR connector, an
-internal `capabilities.json`) lives in a **private overlay** that you keep in your
-own repo and never publish. This doc shows how to build one.
+internal `capabilities.json`) lives in a **private overlay**. The overlay is its
+own **peer repo** — a sibling directory you keep private, never a subdirectory of
+pi-stack. pi-stack references it by path (`OVERLAY`, default `../pi-stack-work`).
 
 An overlay has two halves, because pi-stack runs in two places:
 
 | half | runs | mechanism |
 |---|---|---|
-| **sandbox overlay** | inside the disposable VM | a **mixin kit** (`--kit`) — skills, `capabilities.json`, in-sandbox wrappers |
-| **host overlay** | on your host (outside the VM) | a **`services/host/overlay_*.go` plugin** that self-registers into `pi-stack-host` |
+| **sandbox** | inside the disposable VM | a **mixin kit** (`kit/`) stacked with `--kit` |
+| **host** | on your host (outside the VM) | **`host/overlay_*.go` plugins**, symlinked into `pi-stack/services/host/` at build |
 
-A working example lives in [`examples/overlay/`](../examples/overlay). Copy it to
-`./pi-kit-work` (gitignored) and edit.
+A copyable scaffold lives in [`examples/overlay/`](../examples/overlay). The layout:
 
-## 1. Sandbox overlay — a mixin kit
+```
+../my-overlay/                 # a peer repo (sibling of pi-stack), kept private
+  kit/
+    spec.yaml                  # kind: mixin
+    files/
+      home/agent/.pi/agent/
+        skills/<your-skill>/SKILL.md     # private skills
+        capabilities.json                # overwrites the public generic one
+      usr/local/bin/<wrapper>            # in-sandbox CLI wrappers
+  host/
+    overlay_<name>.go          # host plugins (Go, package main)
+  overlay.mk                   # private make targets
+```
+
+Point pi-stack at it once, in `config/local.mk`:
+
+```makefile
+OVERLAY = ../my-overlay
+```
+
+## 1. Sandbox half — the mixin kit (`kit/`)
 
 A mixin kit is a directory with a `spec.yaml` (`kind: mixin`) and a `files/` tree
-that maps directly into the sandbox filesystem. Stack it after the public kit and
-its files layer on top of the image:
-
-```
-pi-kit-work/
-  spec.yaml                                  # kind: mixin
-  files/
-    home/agent/.pi/agent/
-      skills/<your-skill>/SKILL.md           # private skills
-      capabilities.json                      # overwrites the public generic one
-    usr/local/bin/<your-wrapper>             # in-sandbox CLI wrappers
-```
-
-`make run` stacks `./pi-kit-work` automatically when it exists (via `OVERLAY_KIT`),
-so you just run `make run` and get:
+that maps directly into the sandbox filesystem. `make run` stacks it automatically
+when `$(OVERLAY)/kit/spec.yaml` exists:
 
 ```bash
-sbx run pi-stack --kit ./pi-kit --kit ./pi-kit-work --mcp ... .
+sbx run pi-stack --kit ./pi-kit --kit ../my-overlay/kit --mcp ... .
 ```
 
 - **Skills** under `files/home/agent/.pi/agent/skills/` are added to the agent's
   skill set (additive — they don't touch the baked public skills).
-- **`capabilities.json`** at `files/home/agent/.pi/agent/capabilities.json`
-  overwrites the public generic one, so your skills can ask for `crm`/`warehouse`/
-  etc. and resolve to your real providers. Write capabilities, not vendors (see the
-  `capability-routing` skill).
+- **`capabilities.json`** overwrites the public generic one, so your skills can ask
+  for `crm`/`warehouse`/etc. and resolve to your real providers. Write
+  capabilities, not vendors (see the `capability-routing` skill).
 - **Wrappers** under `files/usr/local/bin/` are thin in-sandbox shims that forward
-  to a host service (so credentials/SSO stay on the host — see the host half below).
+  to a host service, so credentials/SSO stay on the host (see half 2).
 
-Keep the whole directory private. pi-stack gitignores `pi-kit-work/` by default.
-
-## 2. Host overlay — a `pi-stack-host` plugin
+## 2. Host half — `host/overlay_*.go` plugins
 
 A mixin kit can't ship host binary code, so host-side services (a warehouse exec
-proxy, an extra MCP server) are Go files that compile into `pi-stack-host`. Drop a
-file named `services/host/overlay_*.go` — it's gitignored by default and
-**self-registers** via `init()`:
+proxy, an extra MCP server) are Go files that compile into `pi-stack-host`. Put
+them in your overlay's `host/` named `overlay_*.go`. `make serve` / `make
+mcp-register` (via the `link-overlay` target) **symlink** them into
+`pi-stack/services/host/` before building — the symlinks are gitignored there, so
+your private code never enters the public tree, and a public clone (no overlay)
+builds clean.
+
+Each plugin **self-registers** via `init()`:
 
 ```go
 package main
 
 func init() {
-    // a new subcommand: `pi-stack-host my-svc`
     extraCommands["my-svc"] = runMySvc
-    extraUsage = append(extraUsage, "  my-svc       my private host service")
+    extraUsage = append(extraUsage, "  my-svc       my private host service  [overlay]")
 
-    // optionally also a long-running service under `make serve`:
+    // optional long-running service started by `make serve` (add "my-svc" to SERVICES):
     extraServiceFactories = append(extraServiceFactories, func() hostService {
         return hostService{"my-svc", env("MY_SVC_BIND", "127.0.0.1") + ":12000", myMux()}
     })
@@ -73,26 +81,28 @@ func init() {
 func runMySvc() { /* ... */ }
 ```
 
-The public binary builds and runs identically whether or not these files are
-present — `extraCommands`/`extraUsage`/`extraServiceFactories` are empty in the
-public tree. `make serve` builds `services/host/` (picking up your plugins) and
-runs the services named in `SERVICES`.
+`extraCommands`/`extraUsage`/`extraServiceFactories` are declared (empty) in
+pi-stack's `main.go`; your plugin populates them only when present. The public
+binary builds and runs identically without it. Plugins are `package main` and use
+pi-stack-host's helpers (`env`, `writeJSON`, `mcpStdio`, `hostService`, …), so they
+compile only when symlinked in — edit them in your overlay, build from pi-stack.
 
-Reach the host service from the sandbox over `host.docker.internal:<port>` (add the
-port to your kit's network rules, or the public kit already allows `:11442`), via
-the in-sandbox wrapper from half 1.
+Reach the host service from the sandbox over `host.docker.internal:<port>` via the
+in-sandbox wrapper from half 1 (add the port to your kit's network rules, or the
+public kit already allows `:11442`).
 
 ## 3. Make targets — `overlay.mk`
 
-Put private make targets (auth helpers, a `doctor-overlay` readout) in
-`pi-kit-work/overlay.mk`; the Makefile `-include`s it when present. `make doctor`
-calls `doctor-overlay` automatically, so your private integrations show up in the
-status readout for you but not for a public cloner.
+Put private make targets (auth helpers, a `doctor-overlay` readout) in your
+overlay's `overlay.mk`; pi-stack's Makefile `-include`s `$(OVERLAY)/overlay.mk`.
+`make doctor` calls `doctor-overlay` automatically, so your private integrations
+show up in the status readout for you but not for a public cloner. Targets that
+build the binary should depend on `link-overlay`.
 
-## What stays out of the public repo
+## What keeps the public repo clean
 
-`.gitignore` keeps the overlay out of git, and `scripts/check-open-core.sh` (run in
-CI) fails if any `services/host/overlay_*.go`, `pi-kit-work/`, or known internal
-marker is ever tracked. The public image is verified to bake only the allowlisted
-skills + agents. So you can develop your overlay right next to the public tree
-without risk of leaking it.
+`.gitignore` ignores `services/host/overlay_*.go` (the symlinks), and
+`scripts/check-open-core.sh` (run in CI) fails if any overlay symlink or known
+internal marker is ever tracked, and asserts the skills/agents allowlists mirror.
+The public image is verified to bake only allowlisted skills + agents. So you can
+develop your overlay right next to pi-stack without risk of leaking it.

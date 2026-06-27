@@ -1,4 +1,4 @@
-# Self-learning loop (cluster 1)
+# Self-learning loop
 
 **Status:** built and working (steps 1 to 3). Remaining work in [Remaining (TODO)](#remaining-todo). The original design rationale is kept below the as-built summary; some details evolved during the build (JSON-RPC not MCP, capture on `before_agent_start` not `turn_end`, no staging area yet).
 
@@ -115,11 +115,11 @@ candidate confirmed by synthesis, never a direct write. It runs async on
 `turn_end` and never blocks the main agent, which is talking to a frontier API
 anyway, so the local GPU isn't in the critical path.
 
-On the model: I'm not going to pin a version from memory, since my training is
-stale and you're the one who knows what's on the machine. The watcher is a small
-local model in the Gemma or Qwen class, set by env so we swap it the day a better
-one lands. We pick the default by a bake-off on our own turns (agreement with your
-labels, latency, valid-JSON rate), and we confirm the actual tags with
+On the model: don't pin a version blindly — confirm the actual tags on the machine
+(`ollama list`). The watcher is a small local model in the Gemma or Qwen class, set
+by env (`MEMORY_WATCHER_MODEL`) so it swaps the day a better one lands. Pick the
+default by a bake-off on real turns (agreement with hand labels, latency, valid-JSON
+rate), and confirm the actual tags with
 `ollama list`, not from anything I remember. Embeddings run locally too
 (`nomic-embed-text` class, also swappable). On the M5 two small models stay
 resident for free.
@@ -142,8 +142,8 @@ The store and the loop are different things and live in different places.
 | improve-system / self-audit | merge into promotion review | this is the gated graduation surface |
 | memory-status | a readout command | trivial |
 | ingest | survives, thin | batched doc to facts, same store |
-| todo | deferred | task tracking, a different cluster |
-| refresh-context / setup-user | ops cluster | not part of learning |
+| todo | deferred | task tracking, separate concern |
+| refresh-context / setup-user | ops skills | not part of learning |
 
 Net: about thirteen skills collapse into four thin ones, three extensions, and one store.
 
