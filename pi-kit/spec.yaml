@@ -20,7 +20,7 @@ sandbox:
     # --session-dir persists sessions on the host-mounted workspace so they
     # survive sandbox recreation (resume with `pi -c` / `pi -r`); --models sets
     # the Alt+P cycle squad (Ctrl+P is remapped to emacs cursor-up).
-    run: [pi, "--session-dir", ".pi-sessions", "--models", "anthropic/claude-opus-4-8,openai/gpt-5.5,anthropic/claude-haiku-4-5"]
+    run: [pi, "--session-dir", ".pi-sessions", "--models", "anthropic/claude-opus-4-8,openai/gpt-5.5,google/gemini-3.1-pro,ollama/gemma4"]
 
 # Provider keys are read by the host proxy and swapped into the outbound auth
 # header — the agent inside the VM only ever sees the "proxy-managed" sentinel.
@@ -76,6 +76,11 @@ network:
     - sheets.googleapis.com
     - people.googleapis.com
     - oauth2.googleapis.com
+    # Host Ollama (:11434): the fourth inference provider. pi reaches it for the
+    # `ollama/*` models (set via OLLAMA_HOST below) and the memory loop's watcher +
+    # embeddings run against it too. Optional; the cloud models work without it.
+    - host.docker.internal:11434
+    - localhost:11434
     # Host gws token service (optional; without it the gws wrapper degrades to
     # the real binary unauthenticated).
     - host.docker.internal:11441
@@ -118,6 +123,10 @@ environment:
     # pi runs on Node, which uses its own bundled CA store (not the system one),
     # so it must be told to also trust the proxy's intercepting CA.
     NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/proxy-ca.crt
+    # Ollama runs on the HOST, not in the VM, so point pi (and the ollama provider)
+    # at it over host.docker.internal. Without a local Ollama the `ollama/*` models
+    # just aren't reachable; the cloud providers are unaffected.
+    OLLAMA_HOST: http://host.docker.internal:11434
   proxyManaged:
     - ANTHROPIC_API_KEY
     - GEMINI_API_KEY
