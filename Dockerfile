@@ -154,12 +154,9 @@ COPY --chown=agent:agent agents/       /home/agent/.pi/agent/agents/
 COPY --chown=agent:agent themes/       /home/agent/.pi/agent/themes/
 COPY bin/gws /usr/local/bin/gws
 RUN chmod 0755 /usr/local/bin/gws
-# Snowflake wrapper is OVERLAY-only. bin/snow is gitignored — present only in the
-# owner's build context, absent in the public build. Stage bin/ and install the
-# wrapper iff it's there; the public image simply has no `snow`. (When present it's
-# a thin wrapper forwarding argv to the host exec proxy; no credential enters the VM.)
-COPY bin/ /tmp/pibin/
-RUN if [ -f /tmp/pibin/snow ]; then cp /tmp/pibin/snow /usr/local/bin/snow && chmod 0755 /usr/local/bin/snow; fi && rm -rf /tmp/pibin
+# Note: company tooling (e.g. a `snow` wrapper) is NOT in the public image. Such
+# in-sandbox wrappers are delivered by a private overlay mixin kit at run time
+# (`--kit ./pi-kit-work`); see docs/OVERLAY.md.
 
 # --- memory (self-learning loop) ----------------------------------------------
 # The recall extension baked above is a thin client. The store itself runs on the

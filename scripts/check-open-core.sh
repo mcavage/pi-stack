@@ -43,9 +43,10 @@ for f in $(git ls-files agents/ | sort -u); do
   echo "$allowed_agents" | grep -qx "$f" || note "tracked agent not in allowlist (would leak): $f"
 done
 
-# Private overlay sources must never be tracked — they self-register into the
-# binary when present locally, but the public tree builds without them.
-overlay_tracked="$(git ls-files services/host/snowproxy.go services/host/bamboohr.go services/host/snowproxy_test.go bin/snow config/overlay.mk 2>/dev/null)"
+# Private overlay must never be tracked — host plugins self-register into the
+# binary when present, and the whole mixin kit is private. The public tree builds
+# and ships without either.
+overlay_tracked="$(git ls-files 'services/host/overlay_*.go' 'pi-kit-work/*' pi-kit-work 2>/dev/null)"
 if [ -n "$overlay_tracked" ]; then
   note "private overlay file(s) are tracked (must stay gitignored):"
   echo "$overlay_tracked" | sed 's/^/    /'

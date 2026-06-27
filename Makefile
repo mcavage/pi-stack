@@ -9,6 +9,11 @@ VERSION     ?= 0.0.1
 IMAGE       ?= docker.io/$(DOCKER_USER)/pi-stack:$(VERSION)
 LATEST      ?= docker.io/$(DOCKER_USER)/pi-stack:latest
 KIT         ?= ./pi-kit
+# Private overlay mixin kit (gitignored). Stacked automatically by `make run` when
+# present, so the company skills + full capabilities.json + snow wrapper layer on
+# top of the public image. See docs/OVERLAY.md.
+OVERLAY_KIT ?= ./pi-kit-work
+OVERLAY_KIT_FLAG = $(if $(wildcard $(OVERLAY_KIT)/spec.yaml),--kit $(OVERLAY_KIT),)
 # MCP enablement for `make run`. Set this in config/local.mk (written by
 # `make install`) so the stack is configured once, not by hand each run. Listed
 # servers are auto-attached (`--mcp <name>`) AND are what `make mcp-register`
@@ -36,7 +41,7 @@ OP_BIN  := $(shell command -v op 2>/dev/null)
 # defaults stay generic. config/overlay.mk (also gitignored) adds private,
 # company-specific integrations (Snowflake/BambooHR targets, vars, extra MCP).
 -include config/local.mk
--include config/overlay.mk
+-include pi-kit-work/overlay.mk
 
 # Local-model deps for the self-learning memory (host Ollama). The watcher model
 # turns your messages into durable facts (capture); the embed model powers
@@ -87,8 +92,8 @@ secrets: ## Store provider keys + GitHub token as global sbx service secrets
 	@echo '  echo "$$GEMINI_API_KEY"    | sbx secret set -g google'
 	@echo '  gh auth token             | sbx secret set -g github   # gh in-sandbox, no GH_TOKEN export needed'
 
-run: ## Launch a pi-stack sandbox. Attaches the MCP servers from config/local.mk (MCP=...); empty = dynamic discovery. Override once-off with `make run MCP="slack"`.
-	sbx run pi-stack --kit $(KIT) $(MCP_FLAGS) .
+run: ## Launch a pi-stack sandbox. Stacks the private overlay kit if present, attaches the MCP servers from config/local.mk (MCP=...); empty = dynamic discovery. Override once-off with `make run MCP="slack"`.
+	sbx run pi-stack --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) .
 
 run-no-mcp: ## Launch without sbx Cloud MCP Gateway, for debugging MCP setup failures
 	env -u SBX_MCP_URL sbx run pi-stack --kit $(KIT) .

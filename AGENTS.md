@@ -117,17 +117,19 @@ parallel work to subagents via the `Agent` tool (`subagent_type=fanout|review|de
   from the `gws-token` service (a `pi-stack-host` subcommand) and runs the real
   binary in-sandbox. `gws-token` execs `gws auth export`, so it's a process-spawner
   too — another reason it's Go.
-- **Private overlay (company-specific integrations).** Connectors that are
-  specific to one company — e.g. a Snowflake warehouse exec-proxy or a BambooHR
-  directory MCP — are NOT in the public repo. Their Go sources
-  (`services/host/{snowproxy,bamboohr}.go`), the `bin/snow` wrapper, the Makefile
-  targets (`config/overlay.mk`), and their `capabilities.json` routing are all
-  gitignored. The pattern: an overlay `*.go` file **self-registers** into
-  `pi-stack-host` via `init()` (populating `extraCommands` / `extraUsage` /
-  `extraServiceFactories` in `main.go`), so the binary builds and runs identically
-  with or without it. To add a company connector, drop a gitignored subcommand file
-  in `services/host/` that registers itself — never reference it from a committed
-  file.
+- **Private overlay (company-specific integrations).** Open-core boundary: nothing
+  company-specific is in the public repo. The overlay has two halves (full guide in
+  **`docs/OVERLAY.md`**, copyable scaffold in `examples/overlay/`):
+  - **Sandbox half = a mixin kit** at `./pi-kit-work` (gitignored): private skills,
+    the full `capabilities.json`, and in-sandbox wrappers (e.g. `snow`) under
+    `files/`. `make run` stacks it automatically (`OVERLAY_KIT`). `overlay.mk` there
+    holds private make targets and is `-include`d.
+  - **Host half = `services/host/overlay_*.go` plugins** (gitignored): a file that
+    **self-registers** into `pi-stack-host` via `init()` (populating `extraCommands`
+    / `extraUsage` / `extraServiceFactories` in `main.go`), so the binary builds and
+    runs identically with or without it. Never reference an overlay file from a
+    committed one — the public tree has none. `scripts/check-open-core.sh` (CI) fails
+    if any overlay file or internal marker is ever tracked.
 - **Vendored renderer patch (`scripts/patches/`).** pi-tui's `doRender()` jitters the input box + powerbar up/down while streaming (it doesn't re-anchor the viewport on a bottom-anchored buffer *shrink*). No extension/config fixes it, so the Dockerfile runs `apply-tui-bottom-pin.mjs` after the pi install to patch the installed `@earendil-works/pi-tui/dist/tui.js`. The script is **idempotent + non-fatal** (warns and leaves the file unpatched if a pi version moves the `// Find first and last changed lines` anchor). **On a pi version bump, re-verify it still applies** (`grep "Bottom-block pin" .../pi-tui/dist/tui.js`); if the warning fires, refresh `scripts/patches/tui-bottom-pin.block.txt`. Full root-cause + tests in `docs/upstream/tui-bottom-pin.md` (this is also the eventual upstream PR — gated behind their `lgtm` contribution process).
 
 ## Toolchain in the image

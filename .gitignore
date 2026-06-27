@@ -79,11 +79,11 @@ agents/*
 !agents/sre-lead.md
 !agents/ux-copywriter.md
 
-# --- Private overlay: company-specific host integrations (Snowflake, BambooHR) ---
-# Decoupled from pi-stack-host via self-registration (init): the public tree builds
-# and runs without them; when present locally they self-attach. Keep them OUT of git.
-services/host/snowproxy.go
-services/host/snowproxy_test.go
-services/host/bamboohr.go
-bin/snow
-config/overlay.mk
+# --- Private overlay (see docs/OVERLAY.md) ------------------------------------
+# Host-side plugins: any services/host/overlay_*.go self-registers into
+# pi-stack-host via init() when present, and is kept out of git. The public binary
+# builds and runs identically without them.
+services/host/overlay_*.go
+# The private mixin kit — company skills, full capabilities.json, the snow wrapper,
+# and overlay make targets — lives here, entirely gitignored.
+pi-kit-work/

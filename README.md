@@ -101,9 +101,16 @@ sbx run pi-stack \
 ```
 
 A mixin kit is a folder with a `spec.yaml` (`kind: mixin`) and a `files/` tree;
-anything under `files/home/.pi/agent/skills/` lands in the skills directory. Same
-trick covers prompts, extensions, env, and network rules. Format is in
+anything under `files/home/agent/.pi/agent/skills/` lands in the skills directory.
+Same trick covers prompts, extensions, env, and network rules. Format is in
 [Docker's kit docs](https://docs.docker.com/ai/sandboxes/customize/kits/).
+
+**Private / company overlay.** pi-stack is open-core: proprietary skills, an
+internal `capabilities.json`, and host connectors (a warehouse, a CRM, an HR
+directory) live in a private overlay you keep out of the public repo — a mixin kit
+for the sandbox half plus a `services/host/overlay_*.go` plugin for the host half.
+`make run` stacks `./pi-kit-work` automatically when present. See
+[docs/OVERLAY.md](docs/OVERLAY.md) and the copyable [`examples/overlay/`](examples/overlay).
 
 ## Build from source
 
