@@ -15,11 +15,19 @@ name: publish
 # Optional repo VARIABLE:
 #   DOCKER_USER                           — Docker Hub namespace (default: mcavage)
 #
-# Trigger: push a version tag (e.g. `git tag v0.1.0 && git push --tags`) or run
-# manually from the Actions tab.
+# Triggers:
+#   - push to `main`        → publishes the moving dev tag `:edge` only. This is
+#       active development (changes several times a day); `:edge` always points
+#       at the latest main build. `:latest` and version tags are NOT touched.
+#   - push a version tag     → publishes `:<version>` AND moves `:latest`. This is
+#       a real release (e.g. `git tag v0.1.0 && git push --tags`).
+#   - manual (workflow_dispatch) → publishes `:edge` (same as a main push).
+#
+# Run pi-stack against the dev image: `make run-dev` (sbx --template …:edge).
 
 on:
   push:
+    branches: ["main"]
     tags: ["v*"]
   workflow_dispatch: {}
 
@@ -101,16 +109,23 @@ jobs:
       - name: Create and push the multi-arch tag(s)
         working-directory: /tmp/digests
         run: |
-          tags="-t ${IMAGE}:latest"
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            # Strip the leading "v": a git tag v0.0.1 publishes the image as
-            # :0.0.1, matching the pin in pi-kit/spec.yaml + Makefile VERSION +
-            # package.json (which are semver, no "v"). Mismatch here = the README
-            # "Try it" pull 404s for everyone but the local builder.
-            tags="${tags} -t ${IMAGE}:${GITHUB_REF_NAME#v}"
+            # Real release. Strip the leading "v": a git tag v0.0.1 publishes the
+            # image as :0.0.1, matching the pin in pi-kit/spec.yaml + Makefile
+            # VERSION + package.json (semver, no "v"). Mismatch here = the README
+            # "Try it" pull 404s for everyone but the local builder. Also move
+            # :latest so the discoverability tag tracks the newest release.
+            PRIMARY="${IMAGE}:${GITHUB_REF_NAME#v}"
+            tags="-t ${PRIMARY} -t ${IMAGE}:latest"
+          else
+            # Push to main / manual run: only the moving dev tag. Never touches
+            # :latest (that stays pinned to the last real release).
+            PRIMARY="${IMAGE}:edge"
+            tags="-t ${PRIMARY}"
           fi
+          echo "PRIMARY=${PRIMARY}" >> "$GITHUB_ENV"
           docker buildx imagetools create ${tags} \
             $(printf "${IMAGE}@sha256:%s " *)
 
       - name: Inspect
-        run: docker buildx imagetools inspect "${IMAGE}:latest"
+        run: docker buildx imagetools inspect "${PRIMARY}"

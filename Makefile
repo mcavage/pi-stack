@@ -8,6 +8,11 @@ DOCKER_USER ?= mcavage
 VERSION     ?= 0.0.1
 IMAGE       ?= docker.io/$(DOCKER_USER)/pi-stack:$(VERSION)
 LATEST      ?= docker.io/$(DOCKER_USER)/pi-stack:latest
+# EDGE is the moving dev tag CI publishes on every push to main (see
+# .github/workflows/publish.yml). `make run-dev` runs against it so you get the
+# latest main build without cutting a release. Unlike VERSION it is NOT pinned —
+# Docker re-pulls it each run, which is exactly what you want chasing main.
+EDGE        ?= docker.io/$(DOCKER_USER)/pi-stack:edge
 KIT         ?= ./pi-kit
 # Private overlay — its OWN peer repo (not in this tree). It contributes two halves
 # (see docs/OVERLAY.md): kit/ (a mixin kit: company skills, full capabilities.json,
@@ -58,7 +63,7 @@ MEMORY_EMBED_MODEL   ?= nomic-embed-text
 # config/local.mk (written by `make install`) so you never pass flags by hand.
 SERVICES ?= memory gws
 
-.PHONY: help build load publish validate inspect run run-no-mcp serve doctor memory-serve gws-token-serve mcp-register pull-models secrets pack install clean link-overlay
+.PHONY: help build load publish validate inspect run run-dev run-no-mcp serve doctor memory-serve gws-token-serve mcp-register pull-models secrets pack install clean link-overlay
 
 # Symlink the private overlay's host plugins ($(OVERLAY)/host/overlay_*.go) into
 # services/host/ so they compile into pi-stack-host and self-register. No-op in a
@@ -108,6 +113,9 @@ secrets: ## Store provider keys + GitHub token as global sbx service secrets
 
 run: ## Launch a pi-stack sandbox. Stacks the private overlay kit if present, attaches the MCP servers from config/local.mk (MCP=...); empty = dynamic discovery. Override once-off with `make run MCP="slack"`.
 	sbx run pi-stack --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) .
+
+run-dev: ## Launch against the moving :edge dev tag (latest main build; CI publishes it on every push to main). Re-pulled each run, so you always get the freshest build. `make run` uses the pinned release instead.
+	sbx run pi-stack --template $(EDGE) --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) .
 
 run-no-mcp: ## Launch without sbx Cloud MCP Gateway, for debugging MCP setup failures
 	env -u SBX_MCP_URL sbx run pi-stack --kit $(KIT) .

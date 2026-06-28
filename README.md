@@ -207,8 +207,11 @@ pi-stack              # run it anywhere (keys set as above)
 
 Run `make load` after changing the Dockerfile, a skill, or an extension. If you
 only changed the kit in `pi-kit/`, a fresh `make run` is enough. `make publish`
-pushes the image to Docker Hub, and a GitHub Action does it on version tags. The
-base image is a Docker Hardened Image, so building from source needs a DHI-entitled
+pushes the image to Docker Hub. A GitHub Action publishes automatically too: every
+push to `main` updates the moving `:edge` dev tag, and a version tag publishes
+`:<version>` and moves `:latest`. To run the latest `main` build without building
+locally, `make run-dev` (it runs against `:edge`, re-pulled each time). The base
+image is a Docker Hardened Image, so building from source needs a DHI-entitled
 account; the `sbx run` path above does not.
 
 ## For agents
