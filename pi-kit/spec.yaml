@@ -20,7 +20,7 @@ sandbox:
     # --session-dir persists sessions on the host-mounted workspace so they
     # survive sandbox recreation (resume with `pi -c` / `pi -r`); --models sets
     # the Alt+P cycle squad (Ctrl+P is remapped to emacs cursor-up).
-    run: [pi, "--session-dir", ".pi-sessions", "--models", "anthropic/claude-opus-4-8,openai/gpt-5.5,google/gemini-3.1-pro,ollama/gemma4"]
+    run: [pi, "--session-dir", ".pi-sessions", "--models", "anthropic/claude-opus-4-8,openai/gpt-5.5,google/gemini-3.1-pro-preview,ollama/gemma4:latest"]
 
 # Provider keys are read by the host proxy and swapped into the outbound auth
 # header — the agent inside the VM only ever sees the "proxy-managed" sentinel.
@@ -76,9 +76,11 @@ network:
     - sheets.googleapis.com
     - people.googleapis.com
     - oauth2.googleapis.com
-    # Host Ollama (:11434): the fourth inference provider. pi reaches it for the
-    # `ollama/*` models (set via OLLAMA_HOST below) and the memory loop's watcher +
-    # embeddings run against it too. Optional; the cloud models work without it.
+    # Host Ollama (:11434), the fourth inference provider. The in-sandbox
+    # ollama-bridge extension forwards localhost:11434 here over node:http (pi's
+    # fetch can't reach host.docker.internal through the sbx proxy; see the
+    # extension). The memory loop's watcher + embeddings also run against host
+    # Ollama. Optional; cloud models work without it.
     - host.docker.internal:11434
     - localhost:11434
     # Host gws token service (optional; without it the gws wrapper degrades to
@@ -123,10 +125,6 @@ environment:
     # pi runs on Node, which uses its own bundled CA store (not the system one),
     # so it must be told to also trust the proxy's intercepting CA.
     NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/proxy-ca.crt
-    # Ollama runs on the HOST, not in the VM, so point pi (and the ollama provider)
-    # at it over host.docker.internal. Without a local Ollama the `ollama/*` models
-    # just aren't reachable; the cloud providers are unaffected.
-    OLLAMA_HOST: http://host.docker.internal:11434
   proxyManaged:
     - ANTHROPIC_API_KEY
     - GEMINI_API_KEY
@@ -155,10 +153,11 @@ agentContext: |
   empty, the user needs to run `make memory-serve` on the host.
 
   ## Multi-model
-  ANTHROPIC, OPENAI, GEMINI keys are all injected by the host proxy, never stored in
-  this VM. Switch models with /model or --model. Additionally Ollama is available to
-  you at http://host.docker.internal:11434. Use a cheap, fast model like haiku or
-  gemma for bulk fan-out and a stronger one like Opus for synthesis and review.
+  Four providers in the cycle: Claude, GPT, and Gemini (cloud, keys injected by the
+  host proxy, never stored in this VM) plus Ollama (local, via the ollama-bridge
+  extension). Switch with /model or --model. Use a cheap, fast model (gemma4 local,
+  a haiku/flash) for bulk fan-out and a stronger one (Opus, Gemini Pro) for synthesis
+  and review. The review step runs on a different vendor than wrote the code.
 
   ## Subagents and the roster
   The Agent tool runs subagents in parallel from presets in ~/.pi/agent/agents:

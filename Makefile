@@ -84,10 +84,20 @@ help: ## Show this help
 build: ## Build the pi-stack image from the DHI base
 	docker build -t $(IMAGE) .
 
-load: build ## Build, then load the image into the sbx sandbox runtime store (local dev)
-	docker save $(IMAGE) -o out/pi-stack.tar
-	sbx template load out/pi-stack.tar
-	rm -f out/pi-stack.tar
+load: build ## Build + load the image into sbx under a UNIQUE tag, so `make run` uses this exact build
+	# CRITICAL: sbx caches a materialized image PER TAG. With a fixed tag (:0.0.1),
+	# `sbx run` keeps booting the first-cached copy and silently ignores every
+	# reload — verified by creating sandboxes and finding stale extensions. So we
+	# tag each build uniquely, load that, and `make run` pins --template to it.
+	# Old local-*/$(VERSION) templates are pruned so the store doesn't grow.
+	@set -e; TS="local-$$(date +%s)"; T="docker.io/$(DOCKER_USER)/pi-stack:$$TS"; \
+	docker tag $(IMAGE) "$$T"; \
+	docker save "$$T" -o out/pi-stack.tar; \
+	for id in $$(sbx template ls 2>/dev/null | awk '$$1=="docker.io/$(DOCKER_USER)/pi-stack" && ($$2=="$(VERSION)" || $$2 ~ /^local-/){print $$3}'); do sbx template rm "$$id" >/dev/null 2>&1 || true; done; \
+	sbx template load out/pi-stack.tar; \
+	rm -f out/pi-stack.tar; docker rmi "$$T" >/dev/null 2>&1 || true; \
+	echo "$$TS" > out/.local-image-tag; \
+	echo "Loaded as :$$TS. To use it: sbx rm -f pi-stack-pi-stack && make run"
 
 publish: build ## Push the built image to the registry as :$(VERSION) and :latest (run `docker login` first)
 	docker push $(IMAGE)
@@ -111,8 +121,10 @@ secrets: ## Store provider keys + GitHub token as global sbx service secrets
 	@echo '  echo "$$GEMINI_API_KEY"    | sbx secret set -g google'
 	@echo '  gh auth token             | sbx secret set -g github   # gh in-sandbox, no GH_TOKEN export needed'
 
-run: ## Launch a pi-stack sandbox. Stacks the private overlay kit if present, attaches the MCP servers from config/local.mk (MCP=...); empty = dynamic discovery. Override once-off with `make run MCP="slack"`.
-	sbx run pi-stack --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) .
+run: ## Launch a pi-stack sandbox. Uses your latest `make load` build (unique tag) if present, else the kit's pinned image. Stacks the overlay kit + MCP from config/local.mk.
+	@TAG=$$(cat out/.local-image-tag 2>/dev/null || true); \
+	[ -n "$$TAG" ] && echo "(using local build :$$TAG)"; \
+	exec sbx run pi-stack $${TAG:+--template docker.io/$(DOCKER_USER)/pi-stack:$$TAG} --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) .
 
 run-dev: ## Launch against the moving :edge dev tag (latest main build; CI publishes it on every push to main). Re-pulled each run, so you always get the freshest build. `make run` uses the pinned release instead.
 	sbx run pi-stack --template $(EDGE) --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) .

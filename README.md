@@ -34,12 +34,13 @@ your machine, your keys, or anything you didn't explicitly wire in. That is why 
 runs full-auto: approval prompts exist to protect the host, and here there is no
 host to protect. Throw the VM away and start another.
 
-**Four inference providers, live at once.** Claude, GPT, and Gemini in the cloud,
-Ollama on your own machine. `/model` switches, `Alt+P` cycles, and subagents run on
-whichever fits: a fast local model for breadth, a frontier one for the hard part.
-The review step is the point. It runs a second opinion on a *different* vendor than
-wrote the code, so a Claude diff gets argued against by GPT or Gemini, not by
-another Claude. One model grading its own homework is worth less.
+**Four inference providers.** Claude, GPT, and Gemini in the cloud, plus Ollama
+running locally on your machine (no key, no cloud). `/model` switches, `Alt+P`
+cycles, and subagents pick whichever fits, a cheap local model for breadth, a
+frontier one for the hard part. The review step is the point. It runs a second
+opinion on a *different* vendor than wrote the code, so a Claude diff gets argued
+against by GPT or Gemini, not by another Claude. One model grading its own homework
+is worth less. (Ollama also powers the memory loop below.)
 
 **Your keys never enter the VM.** sbx stores your provider keys and its proxy hands
 them to Anthropic and OpenAI directly; the sandbox only ever sees the responses.
@@ -73,16 +74,17 @@ and [docs/OVERLAY.md](docs/OVERLAY.md).
 
 To run it, the `sbx run` path below: the [sbx CLI](https://docs.docker.com/ai/sandboxes/)
 and the Docker Desktop it sits on, plus API keys for the three cloud providers,
-Claude, GPT, and Gemini (I haven't tested subscriptions). The fourth provider,
-Ollama, runs locally, so it needs no key. That is the whole list for a working
-agent.
+Claude, GPT, and Gemini (I haven't tested subscriptions). That is the whole list
+for a working agent.
 
 Each data feature adds one dependency, and they're all optional:
 
-- **Local models and memory**: a local [Ollama](https://ollama.com). It's the
-  fourth inference provider, and it also powers the memory loop, a watcher model
+- **Local models + memory**: a local [Ollama](https://ollama.com), the fourth
+  provider. It serves the `ollama/*` models in the cycle (reached via the
+  in-sandbox `ollama-bridge` extension) and runs the memory loop, a watcher model
   for capture and an embed model for recall (`make pull-models` fetches both).
-  Without it, recall is keyword-only and capture is off.
+  Without it, the `ollama/*` model is unavailable, recall falls back to keyword-only,
+  and capture is off.
 - **The credential-brokered MCP tools** (Slack, plus your overlay's connectors):
   the [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) signed in,
   and a `config/op-refs.env` of `op://` references. `op run` pulls the real secrets
@@ -177,7 +179,7 @@ sbx run pi-stack \
 ```
 
 A mixin kit is a folder with a `spec.yaml` (`kind: mixin`) and a `files/` tree;
-anything under `files/home/agent/.pi/agent/skills/` lands in the skills directory,
+anything under `files/home/.pi/agent/skills/` lands in the skills directory,
 and the same trick covers prompts, extensions, env, and network rules. Format is
 in [Docker's kit docs](https://docs.docker.com/ai/sandboxes/customize/kits/).
 
