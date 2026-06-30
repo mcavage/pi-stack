@@ -13,7 +13,7 @@
 // The MCP server (slack) is stdio and spawned by the sbx gateway via `sbx mcp
 // add` (see `make mcp-register`), not by `serve`.
 //
-// Company-specific integrations (a Snowflake exec proxy, a BambooHR directory MCP)
+// Company-specific integrations (a data-warehouse exec proxy, an HR-directory MCP)
 // live in a private overlay: when their source files are present in the build they
 // self-register here via init(); the public tree ships without them.
 
@@ -33,6 +33,10 @@ var (
 	extraCommands         = map[string]func(){}
 	extraUsage            []string
 	extraServiceFactories []func() hostService
+	// extraServiceAliases maps a config-friendly SERVICES name to the internal
+	// service name a factory registers (e.g. a short "warehouse" -> "warehouse-proxy").
+	// Overlay plugins add their own here so the public tree never names one.
+	extraServiceAliases = map[string]string{}
 )
 
 func main() {

@@ -6,7 +6,7 @@
 //
 // This is one of the two host services that spawn a child process (`gws auth
 // export`); doing it in a compiled Go binary (not a Node interpreter) is the
-// reason it lives here — same rationale as the snow proxy.
+// reason it lives here — same rationale as the overlay exec proxies.
 //
 // Env:
 //   GWS_TOKEN_PORT  default 11441

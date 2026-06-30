@@ -19,11 +19,12 @@ A copyable scaffold lives in [`examples/overlay/`](../examples/overlay). The lay
 ../my-overlay/                 # a peer repo (sibling of pi-stack), kept private
   kit/
     spec.yaml                  # kind: mixin
-    files/
-      home/agent/.pi/agent/
+    files/                       # `home/` maps to $HOME (/home/agent), NOT /home —
+      home/.pi/agent/            # so it's files/home/.pi/..., not files/home/agent/.pi/...
         skills/<your-skill>/SKILL.md     # private skills
         capabilities.json                # overwrites the public generic one
-      usr/local/bin/<wrapper>            # in-sandbox CLI wrappers
+      home/.local/bin/<wrapper>          # in-sandbox CLI wrappers (on PATH; sbx
+                                         # only delivers files under home/ + workspace/)
   host/
     overlay_<name>.go          # host plugins (Go, package main)
   overlay.mk                   # private make targets
@@ -45,7 +46,7 @@ when `$(OVERLAY)/kit/spec.yaml` exists:
 sbx run pi-stack --kit ./pi-kit --kit ../my-overlay/kit --mcp ... .
 ```
 
-- **Skills** under `files/home/agent/.pi/agent/skills/` are added to the agent's
+- **Skills** under `files/home/.pi/agent/skills/` are added to the agent's
   skill set (additive — they don't touch the baked public skills).
 - **`capabilities.json`** overwrites the public generic one, so your skills can ask
   for `crm`/`warehouse`/etc. and resolve to your real providers. Write

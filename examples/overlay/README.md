@@ -28,7 +28,7 @@ Layout:
 my-overlay/
   kit/                                              # sandbox half — mixin kit
     spec.yaml                                       # kind: mixin
-    files/home/agent/.pi/agent/
+    files/home/.pi/agent/
       capabilities.json                             # full routing (overwrites public)
       skills/example-data-skill/SKILL.md            # a private skill
   host/
