@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # pi-stack — launch the pi-stack sandbox in any directory.
 #
-#   cd ~/dev/anything && pi-stack          # run in the current dir
+#   cd ~/dev/anything && pi-stack          # baked skills — matches the shipped image
+#   pi-stack --dev                         # Mode B: skills load LIVE from your host repos
 #   pi-stack ~/dev/other                   # run in a specific dir
+#   pi-stack --dev ~/dev/other             # dev mode in a specific dir
 #   pi-stack -- --model openai/gpt-5.5     # pass args through to pi
 #
-# Resolves the kit relative to this script, so it works from anywhere on PATH.
+# Two modes. Plain `pi-stack` uses the skills baked into the image (what a consumer
+# who `sbx run --kit git+...` gets). `--dev` mounts your host skill trees and tells pi
+# to load THEM instead (--no-skills + --skill roots), so you edit a SKILL.md, /reload
+# in pi, and it's live — no `make load`, no rebuild. Same split as `make run` (which is
+# always Mode B). Resolves the repo + overlay relative to this script, so it works from
+# anywhere on PATH.
 set -euo pipefail
 
 # Resolve the repo root from this script's real location (follows symlinks).
@@ -17,6 +24,11 @@ while [ -h "$src" ]; do
 done
 ROOT="$(cd -P "$(dirname "$src")/.." && pwd)"
 KIT="$ROOT/pi-kit"
+OVERLAY="${OVERLAY:-$ROOT/../pi-stack-work}"
+
+# --dev (Mode B) must come first, before the workspace.
+dev=0
+if [ "${1:-}" = "--dev" ]; then dev=1; shift; fi
 
 # Workspace = first non-flag arg, else cwd. Remaining args after `--` go to pi.
 workspace="."
@@ -25,6 +37,24 @@ if [ "${1:-}" != "" ] && [ "${1:-}" != "--" ]; then
 fi
 [ "${1:-}" = "--" ] && shift
 
-cmd=( sbx run pi-stack --kit "$KIT" "$workspace" )
-[ "$#" -gt 0 ] && cmd+=( -- "$@" )
+kits=( --kit "$KIT" )
+[ -f "$OVERLAY/kit/spec.yaml" ] && kits+=( --kit "$OVERLAY/kit" )
+
+extra_ws=()
+pi_args=()
+if [ "$dev" = 1 ]; then
+  # Mount host skill trees (writable) + load them live, replacing the baked set.
+  extra_ws+=( "$ROOT/skills" )
+  pi_args=( --no-skills --skill "$ROOT/skills" )
+  ov_skills="$OVERLAY/kit/files/home/.pi/agent/skills"
+  if [ -d "$ov_skills" ]; then
+    extra_ws+=( "$ov_skills" )
+    pi_args+=( --skill "$ov_skills" )
+  fi
+fi
+
+cmd=( sbx run pi-stack "${kits[@]}" "$workspace" ${extra_ws[@]+"${extra_ws[@]}"} )
+if [ "${#pi_args[@]}" -gt 0 ] || [ "$#" -gt 0 ]; then
+  cmd+=( -- ${pi_args[@]+"${pi_args[@]}"} "$@" )
+fi
 exec "${cmd[@]}"

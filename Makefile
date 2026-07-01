@@ -27,6 +27,14 @@ OVERLAY_KIT_FLAG = $(if $(wildcard $(OVERLAY)/kit/spec.yaml),--kit $(OVERLAY)/ki
 # die with the sandbox. Scoped to kit/ (not the repo root), so host/*.go and .git
 # stay out of the VM. See AGENTS.md "Writing skills".
 OVERLAY_WS = $(if $(wildcard $(OVERLAY)/kit/spec.yaml),$(OVERLAY)/kit,)
+# Dev mode (Mode B): `make run` launches from the repo, so load skills LIVE from the
+# host tree instead of the copies baked into the image — edit a SKILL.md, /reload in
+# pi, and it's live, no rebuild. `--no-skills` turns off baked discovery; each
+# `--skill <root>` recurses for SKILL.md, so we point at the public repo's skills and
+# (if present) the overlay's. Paths are absolute = the in-sandbox mount paths (sbx
+# mounts each workspace at its host path). Consumers who `sbx run --kit git+...` never
+# hit this target, so they get the baked set (Mode A). See AGENTS.md.
+DEV_SKILLS = --no-skills --skill $(CURDIR)/skills$(if $(OVERLAY_WS), --skill $(abspath $(OVERLAY))/kit/files/home/.pi/agent/skills,)
 # MCP enablement for `make run`. Set this in config/local.mk (written by
 # `make install`) so the stack is configured once, not by hand each run. Listed
 # servers are auto-attached (`--mcp <name>`) AND are what `make mcp-register`
@@ -139,7 +147,7 @@ run: ## Launch a pi-stack sandbox NAME. If NAME is stopped it's recreated (works
 	fi; \
 	TAG=$$(cat out/.local-image-tag 2>/dev/null || true); \
 	[ -n "$$TAG" ] && echo "(new sandbox $(NAME), local build :$$TAG)" || echo "(new sandbox $(NAME), kit-pinned image)"; \
-	exec sbx run pi-stack --name $(NAME) $${TAG:+--template docker.io/$(DOCKER_USER)/pi-stack:$$TAG} --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) . $(OVERLAY_WS)
+	exec sbx run pi-stack --name $(NAME) $${TAG:+--template docker.io/$(DOCKER_USER)/pi-stack:$$TAG} --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) . $(OVERLAY_WS) -- $(DEV_SKILLS)
 
 run-dev: ## Launch against the moving :edge dev tag (latest main build; CI publishes it on every push to main). Re-pulled each run, so you always get the freshest build. `make run` uses the pinned release instead.
 	sbx run pi-stack --template $(EDGE) --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) .

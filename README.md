@@ -207,8 +207,12 @@ make install          # put a `pi-stack` command on your PATH
 pi-stack              # run it anywhere (keys set as above)
 ```
 
-Run `make load` after changing the Dockerfile, a skill, or an extension. If you
-only changed the kit in `pi-kit/`, a fresh `make run` is enough. `make publish`
+Run `make load` after changing the Dockerfile or an extension. **Skills, you don't
+rebuild for:** `make run` (and `pi-stack --dev`) load skills live from your repo, so
+edit a `SKILL.md`, `/reload` in pi, and it's live. `make load` only bakes your skills
+into the image for people who run it the turnkey way (`sbx run --kit git+…`), which
+uses the baked set. If you only changed the kit in `pi-kit/`, a fresh `make run` is
+enough. `make publish`
 pushes the image to Docker Hub. A GitHub Action publishes automatically too: every
 push to `main` updates the moving `:edge` dev tag, and a version tag publishes
 `:<version>` and moves `:latest`. To run the latest `main` build without building
