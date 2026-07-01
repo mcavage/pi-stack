@@ -99,6 +99,32 @@ func slackResolveUsers(ids []string) {
 	}
 }
 
+// slackBulkResolveUsers fills the name cache from users.list (one API call per
+// ~1000 users), so resolving many DM partners costs ~1-3 calls total instead of
+// one users.info per id (which would re-create the slow per-item grind).
+func slackBulkResolveUsers() {
+	cursor := ""
+	for pages := 0; pages < 20; pages++ {
+		data, err := slackCall("users.list", map[string]string{"limit": "1000", "cursor": cursor})
+		if err != nil {
+			return
+		}
+		members, _ := data["members"].([]any)
+		slackUserMu.Lock()
+		for _, mm := range members {
+			u, _ := mm.(map[string]any)
+			if id := getStr(u, "id"); id != "" {
+				slackUserNames[id] = slackBestName(u, id)
+			}
+		}
+		slackUserMu.Unlock()
+		cursor = getStr(getMap(data, "response_metadata"), "next_cursor")
+		if cursor == "" {
+			break
+		}
+	}
+}
+
 func slackBestName(u jsonObj, fallback string) string {
 	if u == nil {
 		return fallback
@@ -208,27 +234,67 @@ func slackToolHandlers() map[string]func(jsonObj) (any, error) {
 			return jsonObj{"success": true, "total": msgs["total"], "matches": matches}, nil
 		},
 		"list_channels": func(p jsonObj) (any, error) {
-			data, err := slackCall("conversations.list", map[string]string{
-				"types": getStrOr(p, "types", "public_channel"), "limit": itoaClamp(p["limit"], 100, 1, 1000),
-				"exclude_archived": "true", "cursor": getStr(p, "cursor"),
-			})
-			if err != nil {
-				return nil, err
-			}
+			// Slack's conversations.list has no server-side name search and pages at
+			// up to 1000 per call, so we follow next_cursor here and return the whole
+			// directory (filtered by `query` across ALL pages) in one tool call. This
+			// is what callers expect: one call, every match, not a manual cursor grind.
 			q := strings.ToLower(strings.TrimSpace(getStr(p, "query")))
+			types := getStrOr(p, "types", "public_channel")
+			pageSize := itoaClamp(p["limit"], 1000, 1, 1000)
+			verbose, _ := p["verbose"].(bool) // include topic+purpose (heavy on big workspaces)
+			cursor := getStr(p, "cursor")
 			chans := []jsonObj{}
-			arr, _ := data["channels"].([]any)
-			for _, cc := range arr {
-				c, _ := cc.(map[string]any)
-				name := getStr(c, "name")
-				if q != "" && !strings.Contains(strings.ToLower(name), q) {
-					continue
+			hasDM := false
+			pages := 0
+			const maxPages = 50 // safety: 50 * 1000 = 50k channels, far past any real workspace
+			for {
+				data, err := slackCall("conversations.list", map[string]string{
+					"types": types, "limit": pageSize,
+					"exclude_archived": "true", "cursor": cursor,
+				})
+				if err != nil {
+					return nil, err
 				}
-				chans = append(chans, jsonObj{"id": getStr(c, "id"), "name": name,
-					"is_private": c["is_private"], "num_members": c["num_members"],
-					"topic": getStr(getMap(c, "topic"), "value"), "purpose": getStr(getMap(c, "purpose"), "value")})
+				arr, _ := data["channels"].([]any)
+				for _, cc := range arr {
+					c, _ := cc.(map[string]any)
+					name := getStr(c, "name")
+					if q != "" && !strings.Contains(strings.ToLower(name), q) {
+						continue
+					}
+					// Lean by default: id + name + privacy + members. Topic/purpose only
+					// when asked, since a big workspace's full text is a huge tool result.
+					row := jsonObj{"id": getStr(c, "id"), "name": name,
+						"is_private": c["is_private"], "num_members": c["num_members"]}
+					if u := getStr(c, "user"); u != "" { // a DM (im): nameless, carries the partner's user id
+						row["user"] = u
+						hasDM = true
+					}
+					if verbose {
+						row["topic"] = getStr(getMap(c, "topic"), "value")
+						row["purpose"] = getStr(getMap(c, "purpose"), "value")
+					}
+					chans = append(chans, row)
+				}
+				cursor = getStr(getMap(data, "response_metadata"), "next_cursor")
+				pages++
+				if cursor == "" || pages >= maxPages {
+					break
+				}
 			}
-			return jsonObj{"success": true, "channels": chans, "count": len(chans), "next_cursor": getStr(getMap(data, "response_metadata"), "next_cursor")}, nil
+			// DMs come back nameless; resolve every partner from one users.list pass
+			// (not one users.info per DM) so a 466-DM list is usable, not opaque ids.
+			if hasDM {
+				slackBulkResolveUsers()
+				for _, row := range chans {
+					if u, _ := row["user"].(string); u != "" {
+						row["user_name"] = slackNameFor(u)
+					}
+				}
+			}
+			// next_cursor is empty unless we stopped at the safety cap (then a caller can resume).
+			return jsonObj{"success": true, "channels": chans, "count": len(chans),
+				"pages_fetched": pages, "complete": cursor == "", "next_cursor": cursor}, nil
 		},
 		"read_channel": func(p jsonObj) (any, error) {
 			ch := getStr(p, "channel_id")
@@ -329,12 +395,13 @@ func slackToolHandlers() map[string]func(jsonObj) (any, error) {
 func slackTools() []mcpTool {
 	s := func(d string) jsonObj { return jsonObj{"type": "string", "description": d} }
 	n := func(d string) jsonObj { return jsonObj{"type": "number", "description": d} }
+	b := func(d string) jsonObj { return jsonObj{"type": "boolean", "description": d} }
 	return []mcpTool{
 		{"health", "Check Slack MCP server health and the authenticated identity (auth.test).", jsonObj{}, nil},
 		{"search_messages", "Search Slack messages with Slack search syntax (e.g. 'in:#dev from:@jane release'). Needs a user token.",
 			jsonObj{"query": s("Slack search query"), "count": n("1-100 (default 20)"), "sort": s("'score' or 'timestamp'"), "sort_dir": s("'desc' or 'asc'"), "page": n("1-based page")}, []string{"query"}},
-		{"list_channels", "List channels (optionally filtered by a name substring).",
-			jsonObj{"query": s("name substring filter"), "types": s("public_channel,private_channel,mpim,im"), "limit": n("1-1000"), "cursor": s("next_cursor")}, nil},
+		{"list_channels", "List ALL channels in one call: follows pagination server-side and returns the whole directory (optionally filtered by a name substring across every page). No cursor grind needed. Returns lean rows (id, name, is_private, num_members) by default; DMs (types=im) are nameless but come back with the partner's user id and resolved user_name.",
+			jsonObj{"query": s("name substring filter, applied across all pages"), "types": s("public_channel,private_channel,mpim,im (default public_channel)"), "limit": n("per-page fetch size 1-1000 (default 1000); the call still returns every match"), "verbose": b("include each channel's topic + purpose text (heavy on large workspaces; default false)"), "cursor": s("optional: resume from a prior next_cursor (only set if a previous call hit the safety cap)")}, nil},
 		{"read_channel", "Read recent messages from a channel (conversations.history), user names resolved.",
 			jsonObj{"channel_id": s("Channel id e.g. C0ABC123"), "limit": n("1-100 (default 50)"), "oldest": s("Unix ts"), "latest": s("Unix ts"), "cursor": s("next_cursor")}, []string{"channel_id"}},
 		{"read_thread", "Read all replies in a thread (conversations.replies), user names resolved.",
