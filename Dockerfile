@@ -12,7 +12,7 @@
 # nag (pi checks npm at runtime, so a new release always nags until you rebump).
 # When bumping, re-check the vendored tui patch still applies (build logs print
 # "[apply-tui-bottom-pin] patched" vs an "anchor not found" warning).
-ARG PI_PACKAGE=@earendil-works/pi-coding-agent@0.80.2
+ARG PI_PACKAGE=@earendil-works/pi-coding-agent@0.80.3
 
 # Hardened Node, maintained by Docker (DHI). Debian/glibc, so our entire apt
 # toolchain (clangd, chromium, gh, ruff, build-essential) keeps working — we just
@@ -189,14 +189,14 @@ USER agent
 # every rebuild; a newer extension then imports a pi-ai API (e.g. `/compat`) that
 # the pinned PI_PACKAGE doesn't ship, and the agent dies at load
 # ("Cannot find module '.../pi-ai/dist/index.js/compat'"). These versions are the
-# set that was current when PI_PACKAGE (0.80.2, 2026-06-23) shipped. When you
+# set that was current when PI_PACKAGE (0.80.3, 2026-06-30) shipped. When you
 # bump PI_PACKAGE, re-pin this list to the versions current at that release
 # (newest published on/before the release date).
 RUN set -eux; for p in \
-      @tintinweb/pi-subagents@0.12.0 pi-plan@0.1.1 pi-mcp-adapter@2.10.0 \
-      pi-manage-todo-list@0.4.0 pi-simplify@0.2.2 pi-web-access@0.12.0 pi-lens@3.8.53 \
+      @tintinweb/pi-subagents@0.13.0 pi-plan@0.1.1 pi-mcp-adapter@2.10.0 \
+      pi-manage-todo-list@0.4.0 pi-simplify@0.2.2 pi-web-access@0.13.0 pi-lens@3.8.62 \
       @juanibiapina/pi-extension-settings@0.8.0 @juanibiapina/pi-powerbar@0.12.0 \
-      pi-usage@0.2.1 pi-agent-browser-native@0.2.60; do \
+      pi-usage@0.2.1 pi-agent-browser-native@0.2.63; do \
       pi install "npm:$p"; \
     done; pi list
 
