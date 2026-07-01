@@ -64,6 +64,26 @@ YAML frontmatter `name` + `description` (when to use), then tight markdown steps
 Auto-discovered; invoke `/skill:<name>` or let it auto-load. Delegate heavy or
 parallel work to subagents via the `Agent` tool (`subagent_type=fanout|review|deep`).
 
+A skill is **pure mechanism** — never bake one person's specifics (their channels,
+accounts, names, thresholds) into a SKILL.md. Those are per-user and live in
+**memory** (the skill reads them at runtime); the skill only knows the *shape*.
+
+**Improving an overlay skill: edit the mounted source, not the delivered copy.**
+`make run` mounts the overlay's `kit/` into the sandbox as a writable workspace (at
+its host path, `$(OVERLAY)/kit` = `../pi-stack-work/kit`). There are two copies of
+every overlay skill in the sandbox:
+
+- `~/.pi/agent/skills/<name>/SKILL.md` — what pi loaded this session, but a **read-only
+  kit-delivered copy that dies with the sandbox**. Editing it here is lost.
+- `../pi-stack-work/kit/files/home/.pi/agent/skills/<name>/SKILL.md` — the **real
+  source on the mounted repo. Edit HERE; it persists.**
+
+So when you improve an overlay skill mid-session, write the change to the mounted
+source, then tell the user to `make load` on the host to bake it into future
+sandboxes (a mounted edit persists to the repo but does not go live until rebuilt).
+If the overlay isn't mounted (no `../pi-stack-work/kit`), fall back to handing the
+user a diff.
+
 ## Models & subagents
 
 - Providers: **Claude + OpenAI**, keys injected proxy-side (the VM only ever sees the `proxy-managed` sentinel). Switch `/model`; cycle **Alt+P**.
@@ -132,6 +152,11 @@ parallel work to subagents via the `Agent` tool (`subagent_type=fanout|review|de
     builds identically with or without them. Never reference an overlay file from a
     committed one — the public tree has none. `scripts/check-open-core.sh` (CI) fails
     if any overlay file or internal marker is ever tracked.
+  - **Company config/data has a home, and it is never the public repo.** Per-user
+    or company-specific *data* (channel lists, customer/account names, tier rules,
+    thresholds) goes in **pi memory** (`remember`, tag it) or the **overlay**. Do
+    NOT write it into a file in this tree — not even a scratch `*.yaml`. It would
+    leak the hierarchy into the public image and trip the open-core guard.
 - **Vendored renderer patch (`scripts/patches/`).** pi-tui's `doRender()` jitters the input box + powerbar up/down while streaming (it doesn't re-anchor the viewport on a bottom-anchored buffer *shrink*). No extension/config fixes it, so the Dockerfile runs `apply-tui-bottom-pin.mjs` after the pi install to patch the installed `@earendil-works/pi-tui/dist/tui.js`. The script is **idempotent + non-fatal** (warns and leaves the file unpatched if a pi version moves the `// Find first and last changed lines` anchor). **On a pi version bump, re-verify it still applies** (`grep "Bottom-block pin" .../pi-tui/dist/tui.js`); if the warning fires, refresh `scripts/patches/tui-bottom-pin.block.txt`. Full root-cause + tests in `docs/upstream/tui-bottom-pin.md` (this is also the eventual upstream PR — gated behind their `lgtm` contribution process).
 
 ## Toolchain in the image

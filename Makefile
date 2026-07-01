@@ -21,6 +21,12 @@ KIT         ?= ./pi-kit
 # Set OVERLAY in config/local.mk if your peer repo lives elsewhere.
 OVERLAY     ?= ../pi-stack-work
 OVERLAY_KIT_FLAG = $(if $(wildcard $(OVERLAY)/kit/spec.yaml),--kit $(OVERLAY)/kit,)
+# Also mount the overlay's kit/ as a writable extra workspace, so skills/config the
+# agent improves mid-session can be saved to the real source (then `make load` bakes
+# them). Without this, in-sandbox edits land on the read-only kit-delivered copy and
+# die with the sandbox. Scoped to kit/ (not the repo root), so host/*.go and .git
+# stay out of the VM. See AGENTS.md "Writing skills".
+OVERLAY_WS = $(if $(wildcard $(OVERLAY)/kit/spec.yaml),$(OVERLAY)/kit,)
 # MCP enablement for `make run`. Set this in config/local.mk (written by
 # `make install`) so the stack is configured once, not by hand each run. Listed
 # servers are auto-attached (`--mcp <name>`) AND are what `make mcp-register`
@@ -121,10 +127,19 @@ secrets: ## Store provider keys + GitHub token as global sbx service secrets
 	@echo '  echo "$$GEMINI_API_KEY"    | sbx secret set -g google'
 	@echo '  gh auth token             | sbx secret set -g github   # gh in-sandbox, no GH_TOKEN export needed'
 
-run: ## Launch a pi-stack sandbox. Uses your latest `make load` build (unique tag) if present, else the kit's pinned image. Stacks the overlay kit + MCP from config/local.mk.
-	@TAG=$$(cat out/.local-image-tag 2>/dev/null || true); \
-	[ -n "$$TAG" ] && echo "(using local build :$$TAG)"; \
-	exec sbx run pi-stack $${TAG:+--template docker.io/$(DOCKER_USER)/pi-stack:$$TAG} --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) .
+NAME ?= pi-stack-pi-stack
+run: ## Launch a pi-stack sandbox NAME. If NAME is stopped it's recreated (workspace + .pi-sessions are host-mounted, so nothing is lost); if it's already running this refuses rather than clobber a live session. `make run NAME=pi-stack-2` opens a second parallel sandbox in another window. (Kit-defined agents can't be re-attached, hence recreate.)
+	@status=$$(sbx ls 2>/dev/null | awk -v n="$(NAME)" '$$1==n{print $$3}'); \
+	if [ "$$status" = "running" ]; then \
+		echo "ERROR: sandbox $(NAME) is already running (a live pi). Use a different name (make run NAME=pi-stack-2) or 'sbx rm -f $(NAME)' first."; exit 1; \
+	fi; \
+	if [ -n "$$status" ]; then \
+		echo "(sandbox $(NAME) exists [$$status] — recreating; workspace + .pi-sessions persist on the host)"; \
+		sbx rm -f $(NAME) >/dev/null 2>&1 || true; \
+	fi; \
+	TAG=$$(cat out/.local-image-tag 2>/dev/null || true); \
+	[ -n "$$TAG" ] && echo "(new sandbox $(NAME), local build :$$TAG)" || echo "(new sandbox $(NAME), kit-pinned image)"; \
+	exec sbx run pi-stack --name $(NAME) $${TAG:+--template docker.io/$(DOCKER_USER)/pi-stack:$$TAG} --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) . $(OVERLAY_WS)
 
 run-dev: ## Launch against the moving :edge dev tag (latest main build; CI publishes it on every push to main). Re-pulled each run, so you always get the freshest build. `make run` uses the pinned release instead.
 	sbx run pi-stack --template $(EDGE) --kit $(KIT) $(OVERLAY_KIT_FLAG) $(MCP_FLAGS) .
